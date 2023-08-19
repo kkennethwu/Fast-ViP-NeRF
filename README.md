@@ -1,3 +1,1 @@
 # FAST-VIP-NeRF
-
-hi
