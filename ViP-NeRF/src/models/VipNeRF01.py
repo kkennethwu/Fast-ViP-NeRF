@@ -6,6 +6,10 @@
 import numpy
 import torch
 import torch.nn.functional as F
+from models import tensorBase, tensoRF
+from models import tensorBase, tensoRF
+from models import tensorBase, tensoRF
+from models import tensorBase, tensoRF
 
 
 class VipNeRF(torch.nn.Module):
@@ -26,7 +30,7 @@ class VipNeRF(torch.nn.Module):
     def build_nerf(self):
         if self.coarse_mlp_needed:
             self.coarse_model = MLP(self.configs, self.configs['model']['coarse_mlp'])
-
+            # self.coarse_model = TensorBase()
         if self.fine_mlp_needed:
             self.fine_model = MLP(self.configs, self.configs['model']['fine_mlp'])
         return
@@ -37,10 +41,12 @@ class VipNeRF(torch.nn.Module):
             for key in input_batch['common_data'].keys():
                 if isinstance(input_batch['common_data'][key], torch.Tensor):
                     input_batch['common_data'][key] = input_batch['common_data'][key][0]
+        ##### _STEP 1: input_batch into "self.render" #####
         render_output_dict = self.render(input_batch, retraw=retraw or self.training, sec_views_vis=sec_views_vis or self.training)
         return render_output_dict
 
     def render(self, input_dict: dict, retraw: bool, sec_views_vis: bool):
+        ##### _STEP2: input_dict into "batchify_rays" #####
         all_ret = self.batchify_rays(input_dict, retraw, sec_views_vis)
         return all_ret
 
@@ -61,7 +67,9 @@ class VipNeRF(torch.nn.Module):
                 else:
                     render_rays_dict[key] = input_dict[key]
 
+            
             # ret = self.render_rays(rays_flat[i:i+chunk], **kwargs)
+            ##### _STEP 3: render_ray_dict into "self.render_rays" #####
             ret = self.render_rays(render_rays_dict, retraw, sec_views_vis)
             for k in ret:
                 if k not in all_ret:
@@ -69,9 +77,11 @@ class VipNeRF(torch.nn.Module):
                 all_ret[k].append(ret[k])
 
         all_ret = self.merge_mini_batch_data(all_ret)
+        # breakpoint()
         return all_ret
 
     def render_rays(self, input_dict: dict, retraw, sec_views_vis):
+        # breakpoint()
         rays_o = input_dict['rays_o']
         rays_d = input_dict['rays_d']
         if self.ndc:
@@ -92,15 +102,17 @@ class VipNeRF(torch.nn.Module):
                 rays_o2 = []
                 for i in range(num_frames-1):
                     other_image_id = i + (i >= image_id).long()
+                    print(other_image_id)
                     poses2i = poses[other_image_id]  # (n, 3, 4)
                     rays_o2i = poses2i[:, :3, 3]  # (n, 3)
                     rays_o2.append(rays_o2i)
                 rays_o2 = torch.stack(rays_o2, dim=1)  # (nr, nf-1, 3)
-
+        # breakpoint()
         return_dict = {}
+        ##### coarse model #####
         if self.coarse_mlp_needed:
             z_vals_coarse = self.get_z_vals_coarse(input_dict)
-
+            # breakpoint()
             if not self.ndc:
                 pts_coarse = rays_o[...,None,:] + rays_d[...,None,:] * z_vals_coarse[...,:,None] # [num_rays, num_samples, 3]
             else:
@@ -114,8 +126,9 @@ class VipNeRF(torch.nn.Module):
             if self.coarse_model.predict_visibility and sec_views_vis:
                 view_dirs2 = self.compute_other_view_dirs(z_vals_coarse, rays_o, rays_d, rays_o2)
                 network_input_coarse['view_dirs2'] = view_dirs2
-
+            ##### _STEP 4: input the into MLP ##### 
             network_output_coarse = self.run_network(network_input_coarse, self.coarse_model)
+            ##### Do volume rendering #####
             if not self.ndc:
                 outputs_coarse = self.volume_rendering(network_output_coarse, z_vals=z_vals_coarse, rays_d=rays_d,
                                                        sec_views_vis=sec_views_vis)
@@ -131,7 +144,7 @@ class VipNeRF(torch.nn.Module):
             if retraw:
                 for key in network_output_coarse.keys():
                     return_dict[f'raw_{key}_coarse'] = network_output_coarse[key]
-
+        ##### fine model #####
         if self.fine_mlp_needed:
             z_vals_fine = self.get_z_vals_fine(z_vals_coarse, weights_coarse)
             if not self.ndc:
@@ -262,14 +275,15 @@ class VipNeRF(torch.nn.Module):
         return samples
 
     def run_network(self, input_dict, nerf_mlp):
+        ##### In the MLP, we need to change 'nerf_mlp' into 'TenoRF decomposition' #####
         """
         Prepares inputs and applies network 'nerf_mlp'.
         """
+        
         pts_flat = torch.reshape(input_dict['pts'], [-1, input_dict['pts'].shape[-1]])
         network_input_dict = {
             'pts': pts_flat,
         }
-
         if nerf_mlp.mlp_configs['use_view_dirs']:
             viewdirs = input_dict['view_dirs']
             if viewdirs.ndim == 2:
@@ -283,6 +297,7 @@ class VipNeRF(torch.nn.Module):
                 network_input_dict['view_dirs2'] = view_dirs2_flat
 
         # nerf_mlp = nerf_mlp.to(pts_flat.device)
+        ##### _STEP 5: input to the nerf_mlp #####
         network_output_dict = self.batchify(nerf_mlp)(network_input_dict)
 
         for k, v in network_output_dict.items():
@@ -309,7 +324,7 @@ class VipNeRF(torch.nn.Module):
                         network_input_chunk[key] = input_dict[key][i:i+chunk]
                     else:
                         raise RuntimeError(key)
-
+                ##### _STEP 6: input chunks into nerf_mlp #####
                 network_output_chunk = nerf_mlp(network_input_chunk)
 
                 for k in network_output_chunk.keys():
@@ -489,7 +504,21 @@ class MLP(torch.nn.Module):
         if self.view_dep_outputs:
             self.feature_linear = torch.nn.Linear(self.W, self.W)
             self.views_output_linear = torch.nn.Linear(self.W // 2, views_output_dim)
+        #### For TensoRF #####
+        self.matMode = [[0,1], [0,2], [1,2]]
+        self.vecMode =  [2, 1, 0]
+        self.gridSize = torch.tensor([141, 157, 94]) # device problem
+        self.density_n_comp = [16, 4, 4] # n_lamb_sigma = [16,4,4]
+        self.app_n_comp = [48, 12, 12] # n_lamb_sh = [48,12,12]
+        self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)
+        
+        self.init_svd_volume(self.gridSize[0]) # 141 is grid size, need to be modify
+        self.renderModule = MLPRender_Fea(self.app_dim, view_pe=0, fea_pe=0, featureC=128)
+        # self.density_n_comp = 
+        
         return
+        
+        
 
     @staticmethod
     def get_positional_encoder(degree):
@@ -507,15 +536,38 @@ class MLP(torch.nn.Module):
         return pos_enc_fn, pos_enc.out_dim
 
     def forward(self, input_batch):
+        ##### _STEP 7: lots of '3d points' and thers 'view_dir' finally start going into nerf_mlp structure #####
+        # input_batch.keys() = 'pts', 'view_dirs', 'view_dirs2'
+        # input_batch['pts'].shape = [16384. 3]
+        # input_batch['view_dirs'].shape = [16384, 3]
+        # input_batch['view_dirs2'].shape = [16384, 3]
         input_pts = input_batch['pts']
         output_batch = {}
-
+        ########## TODO: decomposite 'input_pts' and output 'sigma_feature' & 'sigma' ########## 
+        sigma_feature = self.compute_densityfeature_VM(input_pts)
+        validsigma = self.feature2density(sigma_feature)
+        ########## TODO: decomposite 'input_pts' and output 'sigma_feature' & 'sigma' ########## 
+        
+        
+        # breakpoint()
+        
+        ##### positional encoding #####
         encoded_pts = self.pts_pos_enc_fn(input_pts)
+        ##### _STEP 8: pts into F1 to output 'h' & 'density' #####
         pts_outputs = self.get_view_independent_outputs(encoded_pts)
+        ##### pts_outputs is 'density' and 'latent feature', we must change the 'get_view_independent_outputs' to decomposition of TensoRF '
         output_batch.update(pts_outputs)
         if not self.view_dep_rgb:
             rgb = pts_outputs['rgb_view_independent']
-
+        # breakpoint()
+        ########## TODO: decomposite 'input_pts' and output 'sigma_feature' ########## 
+        app_features = self.compute_appfeature_VM(input_pts)
+        # valid_rgbs = self.renderModule(input_pts, )
+        breakpoint()
+        ########## TODO: decomposite 'input_pts' and output 'sigma_feature' ########## 
+        
+        
+        
         if self.view_dep_outputs:
             input_views = input_batch['view_dirs']
             encoded_views = self.views_pos_enc_fn(input_views)
@@ -563,6 +615,7 @@ class MLP(torch.nn.Module):
         if self.view_dep_outputs:
             feature = self.feature_linear(h)
             output_dict['feature'] = feature
+        ##### output_dict: latent feature & sigma
         return output_dict
 
     def get_view_dependent_outputs(self, pts_outputs, input_views):
@@ -574,7 +627,7 @@ class MLP(torch.nn.Module):
             nf = input_views.shape[1] + 1
             feature = feature[:, None, :].repeat([1, nf-1, 1])  # (nc, nf-1, cv)
         h = torch.cat([feature, input_views], -1)
-
+        # breakpoint()
         for i, l in enumerate(self.views_linears):
             h = self.views_linears[i](h)
             h = F.relu(h)
@@ -593,4 +646,116 @@ class MLP(torch.nn.Module):
             visibility = torch.sigmoid(visibility)
             output_dict['visibility'] = visibility
             ch_i += 1
+        # breakpoint()
         return output_dict
+
+    ##### Add VM decomposition to the MLP #####
+    def init_svd_volume(self, res):
+        self.density_plane, self.density_line = self.init_one_svd(self.density_n_comp, self.gridSize, 0.1)
+        self.app_plane, self.app_line = self.init_one_svd(self.app_n_comp, self.gridSize, 0.1)
+        self.basis_mat = torch.nn.Linear(sum(self.app_n_comp), self.app_dim, bias=False)
+    
+    def init_one_svd(self, n_component, gridSize, scale):
+        plane_coef, line_coef = [], []
+        for i in range(len(self.vecMode)):
+            vec_id = self.vecMode[i]
+            mat_id_0, mat_id_1 = self.matMode[i]
+            plane_coef.append(torch.nn.Parameter(
+                scale * torch.randn((1, n_component[i], gridSize[mat_id_1], gridSize[mat_id_0]))))  #
+            line_coef.append(
+                torch.nn.Parameter(scale * torch.randn((1, n_component[i], gridSize[vec_id], 1))))
+
+        return torch.nn.ParameterList(plane_coef), torch.nn.ParameterList(line_coef)
+           
+    def compute_densityfeature_VM(self, input_pts):
+        # breakpoint()
+        output_dict = {}
+        
+        coordinate_plane = torch.stack((input_pts[..., self.matMode[0]], input_pts[..., self.matMode[1]], input_pts[..., self.matMode[2]])).detach().view(3, -1, 1, 2)
+        coordinate_line = torch.stack((input_pts[..., self.vecMode[0]], input_pts[..., self.vecMode[1]], input_pts[..., self.vecMode[2]]))
+        coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
+        sigma_feature = torch.zeros((input_pts.shape[0],), device=input_pts.device)
+        
+        for idx_plane in range(len(self.density_plane)):
+            plane_coef_point = F.grid_sample(self.density_plane[idx_plane], coordinate_plane[[idx_plane]],
+                                                align_corners=True).view(-1, *input_pts.shape[:1])
+            line_coef_point = F.grid_sample(self.density_line[idx_plane], coordinate_line[[idx_plane]],
+                                            align_corners=True).view(-1, *input_pts.shape[:1])
+            sigma_feature = sigma_feature + torch.sum(plane_coef_point * line_coef_point, dim=0)
+            
+        return sigma_feature
+    
+    def compute_appfeature_VM(self, input_pts):
+        coordinate_plane = torch.stack((input_pts[..., self.matMode[0]], input_pts[..., self.matMode[1]], input_pts[..., self.matMode[2]])).detach().view(3, -1, 1, 2)
+        coordinate_line = torch.stack((input_pts[..., self.vecMode[0]], input_pts[..., self.vecMode[1]], input_pts[..., self.vecMode[2]]))
+        coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
+        plane_coef_point,line_coef_point = [],[]
+
+        for idx_plane in range(len(self.app_plane)):
+            plane_coef_point.append(F.grid_sample(self.app_plane[idx_plane], coordinate_plane[[idx_plane]],
+                                                align_corners=True).view(-1, *input_pts.shape[:1]))
+            line_coef_point.append(F.grid_sample(self.app_line[idx_plane], coordinate_line[[idx_plane]],
+                                            align_corners=True).view(-1, *input_pts.shape[:1]))
+        plane_coef_point, line_coef_point = torch.cat(plane_coef_point), torch.cat(line_coef_point)
+
+
+        return self.basis_mat((plane_coef_point * line_coef_point).T)
+
+    
+    def feature2density(self, density_features):
+        # if self.fea2denseAct == "softplus":
+        #     return F.softplus(density_features+self.density_shift)
+        # elif self.fea2denseAct == "relu":
+        #     return F.relu(density_features)
+        return F.relu(density_features)
+
+    def compute_features(self, xyz_sampled):
+        pass
+    
+    
+    
+    
+    
+    def normalize_coord(self, xyz_sampled):
+        return (xyz_sampled-self.aabb[0]) * self.invaabbSize - 1
+
+    def get_optparam_groups(self, lr_init_spatial = 0.02, lr_init_network = 0.001):
+        pass
+
+
+class MLPRender_Fea(torch.nn.Module):
+    def __init__(self,inChanel, viewpe=6, feape=6, featureC=128):
+        super(MLPRender_Fea, self).__init__()
+
+        self.in_mlpC = 2*viewpe*3 + 2*feape*inChanel + 3 + inChanel
+        self.viewpe = viewpe
+        self.feape = feape
+        layer1 = torch.nn.Linear(self.in_mlpC, featureC)
+        layer2 = torch.nn.Linear(featureC, featureC)
+        layer3 = torch.nn.Linear(featureC,3)
+
+        self.mlp = torch.nn.Sequential(layer1, torch.nn.ReLU(inplace=True), layer2, torch.nn.ReLU(inplace=True), layer3)
+        torch.nn.init.constant_(self.mlp[-1].bias, 0)
+
+    def forward(self, pts, viewdirs, features):
+        ##### viewdirs: 3 dim #####
+        indata = [features, viewdirs]
+        if self.feape > 0:
+            indata += [positional_encoding(features, self.feape)]
+        if self.viewpe > 0:
+            indata += [positional_encoding(viewdirs, self.viewpe)]
+        
+        mlp_in = torch.cat(indata, dim=-1)
+        # mlp_out = self.mlp(mlp_in) # mlp_out = color + visibility
+        # mlp_out = torch.sigmoid(mlp_out)
+        rgb = self.mlp(mlp_in)
+        rgb = torch.sigmoid(rgb)
+        return rgb 
+
+def positional_encoding(positions, freqs):
+    
+        freq_bands = (2**torch.arange(freqs).float()).to(positions.device)  # (F,)
+        pts = (positions[..., None] * freq_bands).reshape(
+            positions.shape[:-1] + (freqs * positions.shape[-1], ))  # (..., DF)
+        pts = torch.cat([torch.sin(pts), torch.cos(pts)], dim=-1)
+        return pts
