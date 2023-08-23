@@ -86,7 +86,8 @@ class ColmapTester:
         return quaternions_str, translations_str
     
     def run_colmap(self, camera_data):
-        cmd = f'colmap feature_extractor --database_path {self.db_path.as_posix()} --image_path {self.images_dirpath.as_posix()} --ImageReader.single_camera 1'
+        # cmd = f'colmap feature_extractor --database_path {self.db_path.as_posix()} --image_path {self.images_dirpath.as_posix()} --ImageReader.single_camera 1'
+        cmd = f'colmap feature_extractor --database_path {self.db_path.as_posix()} --image_path {self.images_dirpath.as_posix()} --ImageReader.single_camera 1 --SiftExtraction.use_gpu 0'
         print(cmd)
         os.system(cmd)
     
@@ -101,7 +102,8 @@ class ColmapTester:
         db.execute("UPDATE cameras SET model=6, params=? WHERE camera_id=?", (params, camera_id))
         db.close()
     
-        cmd = f'colmap exhaustive_matcher --database_path {self.db_path.as_posix()}'
+        # cmd = f'colmap exhaustive_matcher --database_path {self.db_path.as_posix()}'
+        cmd = f'colmap exhaustive_matcher --database_path {self.db_path.as_posix()} --SiftMatching.use_gpu 0'
         print(cmd)
         os.system(cmd)
     
