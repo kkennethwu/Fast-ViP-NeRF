@@ -6,11 +6,6 @@
 import numpy
 import torch
 import torch.nn.functional as F
-from models import tensorBase, tensoRF
-from models import tensorBase, tensoRF
-from models import tensorBase, tensoRF
-from models import tensorBase, tensoRF
-
 
 class VipNeRF(torch.nn.Module):
     def __init__(self, configs: dict, model_configs: dict):
@@ -483,7 +478,6 @@ class MLP(torch.nn.Module):
         self.predict_visibility = self.mlp_configs['predict_visibility']
         self.view_dep_outputs = self.view_dep_rgb or self.predict_visibility
         self.raw_noise_std = self.configs['model']['raw_noise_std']
-
         self.pts_linears = torch.nn.ModuleList(
             [torch.nn.Linear(self.pts_input_dim, self.W)] +
             [torch.nn.Linear(self.W, self.W) if i not in self.skips else torch.nn.Linear(self.W + self.pts_input_dim, self.W) for i in range(self.D - 1)]
@@ -513,7 +507,7 @@ class MLP(torch.nn.Module):
         self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)
         
         self.init_svd_volume(self.gridSize[0]) # 141 is grid size, need to be modify
-        self.renderModule = MLPRender_Fea(self.app_dim, view_pe=0, fea_pe=0, featureC=128)
+        self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128)
         # self.density_n_comp = 
         
         return
@@ -543,14 +537,29 @@ class MLP(torch.nn.Module):
         # input_batch['view_dirs2'].shape = [16384, 3]
         input_pts = input_batch['pts']
         output_batch = {}
-        ########## TODO: decomposite 'input_pts' and output 'sigma_feature' & 'sigma' ########## 
-        sigma_feature = self.compute_densityfeature_VM(input_pts)
-        validsigma = self.feature2density(sigma_feature)
-        ########## TODO: decomposite 'input_pts' and output 'sigma_feature' & 'sigma' ########## 
+        ########## TODO: decomposite 'input_pts' and then output 'sigma_feature' & 'sigma' ########## 
+        view_independent_output_dcit = self.compute_view_independent_output(input_pts)
+        output_batch.update(view_independent_output_dcit)
+        # if not self.view_dep_rgb:
+        #     rgb = pts_outputs['rgb_view_independent']
+        ########## TODO: decomposite 'input_pts' and output 'sigma_feature' ########## 
+        app_features = self.compute_appfeature_VM(input_pts)
+        ########## TODO: input "app_feature" and "primary_viewing_dir" to MLP ##########
+        primary_view = input_batch["view_dirs"]
+        primary_output_dict = self.compute_view_dependent_output(input_pts, primary_view, app_features)
+        output_batch.update(primary_output_dict)
+        if self.view_dep_rgb: 
+            rgb = primary_output_dict['rgb_view_dependent']
+        ########## TODO: input "app_feature" and "secondary_viewing_dir" to MLP ##########
+        if 'view_dirs2' in input_batch.keys():
+            secondary_view = input_batch['view_dirs2']
+            secondary_view = torch.stack([x.squeeze() for x in secondary_view])
+            secondary_output_dict = self.compute_view_dependent_output(input_pts, secondary_view, app_features)
+            output_batch['visibility2'] = secondary_output_dict['visibility']
+        output_batch['rgb'] = rgb
         
-        
-        # breakpoint()
-        
+
+        '''        
         ##### positional encoding #####
         encoded_pts = self.pts_pos_enc_fn(input_pts)
         ##### _STEP 8: pts into F1 to output 'h' & 'density' #####
@@ -559,15 +568,8 @@ class MLP(torch.nn.Module):
         output_batch.update(pts_outputs)
         if not self.view_dep_rgb:
             rgb = pts_outputs['rgb_view_independent']
-        # breakpoint()
-        ########## TODO: decomposite 'input_pts' and output 'sigma_feature' ########## 
-        app_features = self.compute_appfeature_VM(input_pts)
-        # valid_rgbs = self.renderModule(input_pts, )
-        breakpoint()
-        ########## TODO: decomposite 'input_pts' and output 'sigma_feature' ########## 
-        
-        
-        
+        '''    
+        '''
         if self.view_dep_outputs:
             input_views = input_batch['view_dirs']
             encoded_views = self.views_pos_enc_fn(input_views)
@@ -581,6 +583,7 @@ class MLP(torch.nn.Module):
                 view_outputs2 = self.get_view_dependent_outputs(pts_outputs, encoded_views2)
                 output_batch['visibility2'] = view_outputs2['visibility']
         output_batch['rgb'] = rgb
+        '''
 
         if 'feature' in output_batch:
             del output_batch['feature']
@@ -631,7 +634,6 @@ class MLP(torch.nn.Module):
         for i, l in enumerate(self.views_linears):
             h = self.views_linears[i](h)
             h = F.relu(h)
-
         view_outputs = self.views_output_linear(h)
         ch_i = 0  # Denotes number of channels which have already been taken output
 
@@ -701,6 +703,39 @@ class MLP(torch.nn.Module):
 
         return self.basis_mat((plane_coef_point * line_coef_point).T)
 
+    def compute_view_independent_output(self, input_pts):
+        output_dict = {}
+        sigma_feature = self.compute_densityfeature_VM(input_pts)
+        output_dict['feature'] = sigma_feature
+        valid_sigma = self.feature2density(sigma_feature)
+        output_dict['sigma'] = valid_sigma
+        
+        # if not self.view_dep_rgb:
+        #     rgb = pts_output[..., ch_i:ch_i+3]
+        #     rgb = torch.sigmoid(rgb)
+        #     output_dict['rgb_view_independent'] = rgb
+        #     ch_i += 3
+            
+        return output_dict
+        
+        
+    
+    def compute_view_dependent_output(self, input_pts, view_dir, app_features):
+        output_dict = {}
+        view_output = self.renderModule(input_pts, view_dir, app_features)
+        
+        ch_i = 0  # Denotes number of channels which have already been taken output
+        if self.view_dep_rgb:
+            rgb = view_output[..., ch_i:ch_i+3] # 3 dimension
+            rgb = torch.sigmoid(rgb)
+            output_dict['rgb_view_dependent'] = rgb
+            ch_i += 3
+        if self.predict_visibility:
+            visibility = view_output[..., ch_i:ch_i+1] # 1 dimension
+            visibility = torch.sigmoid(visibility)
+            output_dict['visibility'] = visibility
+            ch_i += 1
+        return output_dict
     
     def feature2density(self, density_features):
         # if self.fea2denseAct == "softplus":
@@ -732,7 +767,7 @@ class MLPRender_Fea(torch.nn.Module):
         self.feape = feape
         layer1 = torch.nn.Linear(self.in_mlpC, featureC)
         layer2 = torch.nn.Linear(featureC, featureC)
-        layer3 = torch.nn.Linear(featureC,3)
+        layer3 = torch.nn.Linear(featureC,4)
 
         self.mlp = torch.nn.Sequential(layer1, torch.nn.ReLU(inplace=True), layer2, torch.nn.ReLU(inplace=True), layer3)
         torch.nn.init.constant_(self.mlp[-1].bias, 0)
@@ -744,13 +779,13 @@ class MLPRender_Fea(torch.nn.Module):
             indata += [positional_encoding(features, self.feape)]
         if self.viewpe > 0:
             indata += [positional_encoding(viewdirs, self.viewpe)]
-        
         mlp_in = torch.cat(indata, dim=-1)
         # mlp_out = self.mlp(mlp_in) # mlp_out = color + visibility
         # mlp_out = torch.sigmoid(mlp_out)
-        rgb = self.mlp(mlp_in)
-        rgb = torch.sigmoid(rgb)
-        return rgb 
+        view_output = self.mlp(mlp_in)
+        # breakpoint()
+        # rgb = torch.sigmoid(rgb)
+        return view_output 
 
 def positional_encoding(positions, freqs):
     
