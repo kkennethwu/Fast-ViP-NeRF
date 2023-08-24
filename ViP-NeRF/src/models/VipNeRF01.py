@@ -97,7 +97,7 @@ class VipNeRF(torch.nn.Module):
                 rays_o2 = []
                 for i in range(num_frames-1):
                     other_image_id = i + (i >= image_id).long()
-                    print(other_image_id)
+                    # print(other_image_id)
                     poses2i = poses[other_image_id]  # (n, 3, 4)
                     rays_o2i = poses2i[:, :3, 3]  # (n, 3)
                     rays_o2.append(rays_o2i)
@@ -294,7 +294,6 @@ class VipNeRF(torch.nn.Module):
         # nerf_mlp = nerf_mlp.to(pts_flat.device)
         ##### _STEP 5: input to the nerf_mlp #####
         network_output_dict = self.batchify(nerf_mlp)(network_input_dict)
-
         for k, v in network_output_dict.items():
             if isinstance(v, torch.Tensor):
                 network_output_dict[k] = torch.reshape(v, list(input_dict['pts'].shape[:-1]) + list(v.shape[1:]))
@@ -319,9 +318,9 @@ class VipNeRF(torch.nn.Module):
                         network_input_chunk[key] = input_dict[key][i:i+chunk]
                     else:
                         raise RuntimeError(key)
+                # breakpoint()
                 ##### _STEP 6: input chunks into nerf_mlp #####
                 network_output_chunk = nerf_mlp(network_input_chunk)
-
                 for k in network_output_chunk.keys():
                     if k not in network_output_chunks:
                         network_output_chunks[k] = []
@@ -353,7 +352,6 @@ class VipNeRF(torch.nn.Module):
 
         rgb = network_output_dict['rgb']  # [N_rays, N_samples, 3]
         sigma = network_output_dict['sigma'][..., 0]  # [N_rays, N_samples]
-
         alpha = 1. - torch.exp(-sigma * delta)  # [N_rays, N_samples]
         visibility = torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1)).to(rays_d.device), 1.-alpha + 1e-10], -1), -1)[:, :-1]
         weights = alpha * visibility
@@ -389,6 +387,7 @@ class VipNeRF(torch.nn.Module):
 
         if self.predict_visibility and sec_views_vis and ('visibility2' in network_output_dict):
             vis2_point3d = network_output_dict['visibility2']
+            # breakpoint()
             vis2_pixel = torch.sum(weights[..., None] * vis2_point3d[..., 0], dim=-2) / (acc_map[..., None] + 1e-6)  # (nr, nf-1)
             return_dict['visibility2'] = vis2_pixel
         return return_dict
@@ -501,13 +500,13 @@ class MLP(torch.nn.Module):
         #### For TensoRF #####
         self.matMode = [[0,1], [0,2], [1,2]]
         self.vecMode =  [2, 1, 0]
-        self.gridSize = torch.tensor([141, 157, 94]) # device problem
+        self.gridSize = torch.tensor([141, 157, 94]).to("cuda") # device problem
         self.density_n_comp = [16, 4, 4] # n_lamb_sigma = [16,4,4]
         self.app_n_comp = [48, 12, 12] # n_lamb_sh = [48,12,12]
         self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)
         
-        self.init_svd_volume(self.gridSize[0]) # 141 is grid size, need to be modify
-        self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128)
+        self.init_svd_volume(self.gridSize[0], "cuda") # 141 is grid size, need to be modify
+        self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128).to("cuda")
         # self.density_n_comp = 
         
         return
@@ -537,6 +536,9 @@ class MLP(torch.nn.Module):
         # input_batch['view_dirs2'].shape = [16384, 3]
         input_pts = input_batch['pts']
         output_batch = {}
+        
+        
+        # TENSORF IMPLEMENTATION #
         ########## TODO: decomposite 'input_pts' and then output 'sigma_feature' & 'sigma' ########## 
         view_independent_output_dcit = self.compute_view_independent_output(input_pts)
         output_batch.update(view_independent_output_dcit)
@@ -553,13 +555,17 @@ class MLP(torch.nn.Module):
         ########## TODO: input "app_feature" and "secondary_viewing_dir" to MLP ##########
         if 'view_dirs2' in input_batch.keys():
             secondary_view = input_batch['view_dirs2']
+            breakpoint()
             secondary_view = torch.stack([x.squeeze() for x in secondary_view])
             secondary_output_dict = self.compute_view_dependent_output(input_pts, secondary_view, app_features)
-            output_batch['visibility2'] = secondary_output_dict['visibility']
+            output_batch['visibility2'] = secondary_output_dict['visibility'].unsqueeze(2) # wtf why ?
         output_batch['rgb'] = rgb
+        breakpoint()
+        # TENSORF IMPLEMENTATION #
         
 
-        '''        
+        '''
+        # ORIGINAL VIP-NERF IMPLEMENTATION #
         ##### positional encoding #####
         encoded_pts = self.pts_pos_enc_fn(input_pts)
         ##### _STEP 8: pts into F1 to output 'h' & 'density' #####
@@ -568,8 +574,8 @@ class MLP(torch.nn.Module):
         output_batch.update(pts_outputs)
         if not self.view_dep_rgb:
             rgb = pts_outputs['rgb_view_independent']
-        '''    
-        '''
+        
+        
         if self.view_dep_outputs:
             input_views = input_batch['view_dirs']
             encoded_views = self.views_pos_enc_fn(input_views)
@@ -583,11 +589,12 @@ class MLP(torch.nn.Module):
                 view_outputs2 = self.get_view_dependent_outputs(pts_outputs, encoded_views2)
                 output_batch['visibility2'] = view_outputs2['visibility']
         output_batch['rgb'] = rgb
+        # ORIGINAL VIP-NERF IMPLEMENTATION #
         '''
 
         if 'feature' in output_batch:
             del output_batch['feature']
-        return output_batch
+        return output_batch #(16384, 1)
 
     def get_view_independent_outputs(self, input_pts):
         output_dict = {}
@@ -606,7 +613,7 @@ class MLP(torch.nn.Module):
             noise = torch.randn(sigma.shape).to(sigma.device) * self.raw_noise_std
             sigma = sigma + noise
         sigma = F.relu(sigma)
-        output_dict['sigma'] = sigma
+        output_dict['sigma'] = sigma # (16384, 1)
         ch_i += 1
 
         if not self.view_dep_rgb:
@@ -652,12 +659,12 @@ class MLP(torch.nn.Module):
         return output_dict
 
     ##### Add VM decomposition to the MLP #####
-    def init_svd_volume(self, res):
-        self.density_plane, self.density_line = self.init_one_svd(self.density_n_comp, self.gridSize, 0.1)
-        self.app_plane, self.app_line = self.init_one_svd(self.app_n_comp, self.gridSize, 0.1)
-        self.basis_mat = torch.nn.Linear(sum(self.app_n_comp), self.app_dim, bias=False)
+    def init_svd_volume(self, res, device):
+        self.density_plane, self.density_line = self.init_one_svd(self.density_n_comp, self.gridSize, 0.1, device=device)
+        self.app_plane, self.app_line = self.init_one_svd(self.app_n_comp, self.gridSize, 0.1, device=device)
+        self.basis_mat = torch.nn.Linear(sum(self.app_n_comp), self.app_dim, bias=False).to(device)
     
-    def init_one_svd(self, n_component, gridSize, scale):
+    def init_one_svd(self, n_component, gridSize, scale, device):
         plane_coef, line_coef = [], []
         for i in range(len(self.vecMode)):
             vec_id = self.vecMode[i]
@@ -667,7 +674,7 @@ class MLP(torch.nn.Module):
             line_coef.append(
                 torch.nn.Parameter(scale * torch.randn((1, n_component[i], gridSize[vec_id], 1))))
 
-        return torch.nn.ParameterList(plane_coef), torch.nn.ParameterList(line_coef)
+        return torch.nn.ParameterList(plane_coef).to(device), torch.nn.ParameterList(line_coef).to(device)
            
     def compute_densityfeature_VM(self, input_pts):
         # breakpoint()
@@ -684,7 +691,7 @@ class MLP(torch.nn.Module):
             line_coef_point = F.grid_sample(self.density_line[idx_plane], coordinate_line[[idx_plane]],
                                             align_corners=True).view(-1, *input_pts.shape[:1])
             sigma_feature = sigma_feature + torch.sum(plane_coef_point * line_coef_point, dim=0)
-            
+        # breakpoint()
         return sigma_feature
     
     def compute_appfeature_VM(self, input_pts):
@@ -708,8 +715,7 @@ class MLP(torch.nn.Module):
         sigma_feature = self.compute_densityfeature_VM(input_pts)
         output_dict['feature'] = sigma_feature
         valid_sigma = self.feature2density(sigma_feature)
-        output_dict['sigma'] = valid_sigma
-        
+        output_dict['sigma'] = valid_sigma.view(len(valid_sigma), 1)
         # if not self.view_dep_rgb:
         #     rgb = pts_output[..., ch_i:ch_i+3]
         #     rgb = torch.sigmoid(rgb)

@@ -283,9 +283,9 @@ def demo1a():
                     'view_dependent_rgb': True,
                     'predict_visibility': True,
                 },
-                'chunk': 4*1024,
+                'chunk': 512*1024,
                 'lindisp': False,
-                'netchunk': 16*1024,
+                'netchunk': 1024*1024,
                 'perturb': True,
                 'raw_noise_std': 1.0,
                 'white_bkgd': False,
@@ -318,15 +318,15 @@ def demo1a():
                 'beta2': 0.999,
             },
             'resume_training': True,
-            'num_iterations': 200000,
-            'validation_interval': 10000,
+            'num_iterations': 1000,
+            'validation_interval': 500,
             'validation_chunk_size': 64 * 1024,
             'validation_save_loss_maps': False,
-            'model_save_interval': 10000,
+            'model_save_interval': 1000,
             'mixed_precision_training': False,
             # 'seed': numpy.random.randint(1000),
             'seed': 0,
-            'device': [0, 1],
+            'device': [0],
         }
         test_configs = {
             'Tester': f'{this_filename}/{Tester.this_filename}',
@@ -338,7 +338,7 @@ def demo1a():
             'database_dirpath': 'NeRF_LLFF/data',
             'resolution_suffix': train_configs['data_loader']['resolution_suffix'],
             'scene_names': [scene_name],
-            'device': [0, 1],
+            'device': [0],
         }
         start_training(train_configs)
         start_testing(test_configs)
