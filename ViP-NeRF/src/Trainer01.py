@@ -514,7 +514,7 @@ def start_training(configs: dict):
                                                       model_configs=train_data_preprocessor.get_model_configs())
         model_configs = train_data_preprocessor.get_model_configs()
         model = get_model(configs, model_configs)
-        model = torch.nn.DataParallel(model, device_ids=configs['device'])
+        # model = torch.nn.DataParallel(model, device_ids=configs['device'])
         loss_computer = LossComputer(configs)
         optimizer = torch.optim.Adam(list(model.parameters()), lr=configs['optimizer']['lr_initial'],
                                      betas=(configs['optimizer']['beta1'], configs['optimizer']['beta2']))
