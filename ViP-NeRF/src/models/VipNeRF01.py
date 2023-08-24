@@ -554,13 +554,11 @@ class MLP(torch.nn.Module):
             rgb = primary_output_dict['rgb_view_dependent']
         ########## TODO: input "app_feature" and "secondary_viewing_dir" to MLP ##########
         if 'view_dirs2' in input_batch.keys():
-            secondary_view = input_batch['view_dirs2']
-            breakpoint()
-            secondary_view = torch.stack([x.squeeze() for x in secondary_view])
+            secondary_view = input_batch['view_dirs2'][:, -1, :]
             secondary_output_dict = self.compute_view_dependent_output(input_pts, secondary_view, app_features)
             output_batch['visibility2'] = secondary_output_dict['visibility'].unsqueeze(2) # wtf why ?
         output_batch['rgb'] = rgb
-        breakpoint()
+        # breakpoint()
         # TENSORF IMPLEMENTATION #
         
 

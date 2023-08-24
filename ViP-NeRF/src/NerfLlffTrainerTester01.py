@@ -318,7 +318,7 @@ def demo1a():
                 'beta2': 0.999,
             },
             'resume_training': True,
-            'num_iterations': 1000,
+            'num_iterations': 200000,
             'validation_interval': 500,
             'validation_chunk_size': 64 * 1024,
             'validation_save_loss_maps': False,
@@ -448,7 +448,7 @@ def demo1b():
             'mixed_precision_training': False,
             # 'seed': numpy.random.randint(1000),
             'seed': 0,
-            'device': [0, 1],
+            'device': [0],
         }
         test_configs = {
             'Tester': f'{this_filename}/{Tester.this_filename}',
@@ -974,11 +974,11 @@ def demo4():
 
 def main():
     demo1a()
-    demo1b()
-    demo1c()
-    demo1d()
-    demo1e()
-    demo1f()
+    # demo1b()
+    # demo1c()
+    # demo1d()
+    # demo1e()
+    # demo1f()
     return
 
 
