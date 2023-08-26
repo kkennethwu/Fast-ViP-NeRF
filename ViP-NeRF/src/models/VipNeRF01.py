@@ -7,6 +7,7 @@ import numpy
 import torch
 import torch.nn.functional as F
 
+
 class VipNeRF(torch.nn.Module):
     def __init__(self, configs: dict, model_configs: dict):
         super().__init__()
@@ -132,7 +133,6 @@ class VipNeRF(torch.nn.Module):
                                                        rays_d_ndc=rays_d_ndc, rays_o=rays_o, rays_d=rays_d,
                                                        sec_views_vis=sec_views_vis)
             weights_coarse = outputs_coarse['weights']
-
             return_dict['z_vals_coarse'] = z_vals_coarse
             for key in outputs_coarse:
                 return_dict[f'{key}_coarse'] = outputs_coarse[key]
@@ -174,8 +174,10 @@ class VipNeRF(torch.nn.Module):
                     return_dict[f'raw_{key}_fine'] = network_output_fine[key]
 
         if not retraw:
-            del return_dict['z_vals_coarse'], return_dict['visibility_coarse'], return_dict['weights_coarse']
-            del return_dict['z_vals_fine'], return_dict['visibility_fine'], return_dict['weights_fine']
+            if self.coarse_mlp_needed:
+                del return_dict['z_vals_coarse'], return_dict['visibility_coarse'], return_dict['weights_coarse']
+            if self.fine_mlp_needed:
+                del return_dict['z_vals_fine'], return_dict['visibility_fine'], return_dict['weights_fine']
         return return_dict
 
     def get_z_vals_coarse(self, input_dict: dict):
@@ -328,7 +330,6 @@ class VipNeRF(torch.nn.Module):
                         network_output_chunks[k].append(network_output_chunk[k])
                     else:
                         raise RuntimeError
-
             for k in network_output_chunks:
                 if isinstance(network_output_chunks[k][0], torch.Tensor):
                     network_output_chunks[k] = torch.cat(network_output_chunks[k], dim=0)
@@ -504,7 +505,9 @@ class MLP(torch.nn.Module):
         self.density_n_comp = [16, 4, 4] # n_lamb_sigma = [16,4,4]
         self.app_n_comp = [48, 12, 12] # n_lamb_sh = [48,12,12]
         self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)
-        
+        self.aabb = torch.tensor([[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]]).to("cuda") # define scene_box
+        self.aabbSize = self.aabb[1] - self.aabb[0]
+        self.invaabbSize = 2.0/self.aabbSize
         self.init_svd_volume(self.gridSize[0], "cuda") # 141 is grid size, need to be modify
         self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128).to("cuda")
         # self.density_n_comp = 
@@ -537,8 +540,9 @@ class MLP(torch.nn.Module):
         input_pts = input_batch['pts']
         output_batch = {}
         
-        
+        # '''
         # TENSORF IMPLEMENTATION #
+        input_pts = self.normalize_coord(input_pts)
         ########## TODO: decomposite 'input_pts' and then output 'sigma_feature' & 'sigma' ########## 
         view_independent_output_dcit = self.compute_view_independent_output(input_pts)
         output_batch.update(view_independent_output_dcit)
@@ -554,13 +558,14 @@ class MLP(torch.nn.Module):
             rgb = primary_output_dict['rgb_view_dependent']
         ########## TODO: input "app_feature" and "secondary_viewing_dir" to MLP ##########
         if 'view_dirs2' in input_batch.keys():
-            secondary_view = input_batch['view_dirs2'][:, -1, :]
+            secondary_view = input_batch['view_dirs2']
             secondary_output_dict = self.compute_view_dependent_output(input_pts, secondary_view, app_features)
-            output_batch['visibility2'] = secondary_output_dict['visibility'].unsqueeze(2) # wtf why ?
+            output_batch['visibility2'] = secondary_output_dict['visibility']
+        # breakpoint()
         output_batch['rgb'] = rgb
         # breakpoint()
         # TENSORF IMPLEMENTATION #
-        
+        # '''
 
         '''
         # ORIGINAL VIP-NERF IMPLEMENTATION #
@@ -576,20 +581,20 @@ class MLP(torch.nn.Module):
         
         if self.view_dep_outputs:
             input_views = input_batch['view_dirs']
-            encoded_views = self.views_pos_enc_fn(input_views)
+            encoded_views = self.views_pos_enc_fn(input_views) #[524228, 27]
             view_outputs = self.get_view_dependent_outputs(pts_outputs, encoded_views)
             output_batch.update(view_outputs)
             if self.view_dep_rgb:
                 rgb = view_outputs['rgb_view_dependent']
 
             if 'view_dirs2' in input_batch.keys():
-                encoded_views2 = self.views_pos_enc_fn(input_batch['view_dirs2'])
+                encoded_views2 = self.views_pos_enc_fn(input_batch['view_dirs2']) #[524228, 3, 27]
                 view_outputs2 = self.get_view_dependent_outputs(pts_outputs, encoded_views2)
                 output_batch['visibility2'] = view_outputs2['visibility']
         output_batch['rgb'] = rgb
         # ORIGINAL VIP-NERF IMPLEMENTATION #
+        # breakpoint()
         '''
-
         if 'feature' in output_batch:
             del output_batch['feature']
         return output_batch #(16384, 1)
@@ -653,9 +658,7 @@ class MLP(torch.nn.Module):
             visibility = torch.sigmoid(visibility)
             output_dict['visibility'] = visibility
             ch_i += 1
-        # breakpoint()
         return output_dict
-
     ##### Add VM decomposition to the MLP #####
     def init_svd_volume(self, res, device):
         self.density_plane, self.density_line = self.init_one_svd(self.density_n_comp, self.gridSize, 0.1, device=device)
@@ -726,8 +729,14 @@ class MLP(torch.nn.Module):
     
     def compute_view_dependent_output(self, input_pts, view_dir, app_features):
         output_dict = {}
-        view_output = self.renderModule(input_pts, view_dir, app_features)
         
+        if view_dir.ndim == 3:
+            # For viewdirs2
+            nf = view_dir.shape[1] + 1
+            app_features = app_features[:, None, :].repeat([1, nf-1, 1])  # (nc, nf-1, cv)
+        # breakpoint()
+        view_output = self.renderModule(input_pts, view_dir, app_features)
+        # breakpoint()
         ch_i = 0  # Denotes number of channels which have already been taken output
         if self.view_dep_rgb:
             rgb = view_output[..., ch_i:ch_i+3] # 3 dimension
@@ -747,16 +756,24 @@ class MLP(torch.nn.Module):
         # elif self.fea2denseAct == "relu":
         #     return F.relu(density_features)
         return F.relu(density_features)
-
-    def compute_features(self, xyz_sampled):
-        pass
     
-    
-    
-    
+    def TV_loss_density(self, reg):
+        total = 0
+        for idx in range(len(self.density_plane)):
+            total = total + reg(self.density_plane[idx]) * 1e-2 #+ reg(self.density_line[idx]) * 1e-3
+        return total
+        
+    def TV_loss_app(self, reg):
+        total = 0
+        for idx in range(len(self.app_plane)):
+            total = total + reg(self.app_plane[idx]) * 1e-2 #+ reg(self.app_line[idx]) * 1e-3
+        return total
     
     def normalize_coord(self, xyz_sampled):
         return (xyz_sampled-self.aabb[0]) * self.invaabbSize - 1
+
+    def compute_features(self, xyz_sampled):
+        pass
 
     def get_optparam_groups(self, lr_init_spatial = 0.02, lr_init_network = 0.001):
         pass

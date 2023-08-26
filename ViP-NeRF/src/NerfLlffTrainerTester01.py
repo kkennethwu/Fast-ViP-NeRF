@@ -226,8 +226,8 @@ def start_testing_static_videos(test_configs: dict):
 
 
 def demo1a():
-    train_num = 11
-    test_num = 11
+    train_num = 12
+    test_num = 12
     scene_names = ['fern', 'flower', 'fortress', 'horns', 'leaves', 'orchids', 'room', 'trex']
 
     for scene_name in scene_names:
@@ -239,7 +239,7 @@ def demo1a():
             'data_loader': {
                 'data_loader_name': 'NerfLlffDataLoader01',
                 'data_preprocessor_name': 'DataPreprocessor01',
-                'train_set_num': 2,
+                'train_set_num': 4,
                 'scene_names': [scene_name],
                 'resolution_suffix': '_down4',
                 'recenter_camera_poses': True,
@@ -254,26 +254,16 @@ def demo1a():
                 'visibility_prior': {
                     'load_masks': True,
                     'load_weights': False,
-                    'masks_dirname': 'VW02',
+                    'masks_dirname': 'VW04',
                 },
-                'sparse_depth': {
-                    'dirname': 'DE02',
-                    'num_rays': 2048,
-                },
+                # 'sparse_depth': {
+                #     'dirname': 'DE02',
+                #     'num_rays': 4096,
+                # },
             },
             'model': {
                 'name': 'VipNeRF01',
                 'coarse_mlp': {
-                    'num_samples': 64,
-                    'netdepth': 8,
-                    'netwidth': 256,
-                    'points_positional_encoding_degree': 10,
-                    'views_positional_encoding_degree': 4,
-                    'use_view_dirs': True,
-                    'view_dependent_rgb': True,
-                    'predict_visibility': True,
-                },
-                'fine_mlp': {
                     'num_samples': 128,
                     'netdepth': 8,
                     'netwidth': 256,
@@ -283,9 +273,19 @@ def demo1a():
                     'view_dependent_rgb': True,
                     'predict_visibility': True,
                 },
-                'chunk': 512*1024,
+                # 'fine_mlp': {
+                #     'num_samples': 128,
+                #     'netdepth': 8,
+                #     'netwidth': 256,
+                #     'points_positional_encoding_degree': 10,
+                #     'views_positional_encoding_degree': 4,
+                #     'use_view_dirs': True,
+                #     'view_dependent_rgb': True,
+                #     'predict_visibility': True,
+                # },
+                'chunk': 128*4096,
                 'lindisp': False,
-                'netchunk': 1024*1024,
+                'netchunk': 256*4096,
                 'perturb': True,
                 'raw_noise_std': 1.0,
                 'white_bkgd': False,
@@ -302,13 +302,21 @@ def demo1a():
                 {
                     'name': 'VisibilityPriorLoss01',
                     'iter_weights': {
-                        '0': 0, '30000': 0.001,
+                        '0': 0, '1000': 0.1,
                     },
                 },
-                {
-                    "name": "SparseDepthMSE01",
-                    "weight": 0.1,
-                },
+                # {
+                #     "name": "SparseDepthMSE01",
+                #     "weight": 0.1,
+                # },
+                # {
+                #     "name": "TV_loss_density",
+                #     "weight": 1
+                # },
+                # {
+                #     "name": "TV_loss_app",
+                #     "weight": 1
+                # }
             ],
             'optimizer': {
                 'lr_decayer_name': 'NeRFLearningRateDecayer01',
@@ -318,11 +326,11 @@ def demo1a():
                 'beta2': 0.999,
             },
             'resume_training': True,
-            'num_iterations': 200000,
-            'validation_interval': 500,
+            'num_iterations': 20000,
+            'validation_interval': 5000,
             'validation_chunk_size': 64 * 1024,
             'validation_save_loss_maps': False,
-            'model_save_interval': 1000,
+            'model_save_interval': 20000,
             'mixed_precision_training': False,
             # 'seed': numpy.random.randint(1000),
             'seed': 0,
@@ -339,6 +347,8 @@ def demo1a():
             'resolution_suffix': train_configs['data_loader']['resolution_suffix'],
             'scene_names': [scene_name],
             'device': [0],
+            # 'coarse_mlp': True,
+            # 'fine_mlp:': False
         }
         start_training(train_configs)
         start_testing(test_configs)

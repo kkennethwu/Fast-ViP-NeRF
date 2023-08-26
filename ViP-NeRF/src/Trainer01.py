@@ -30,6 +30,7 @@ from lr_decayers.LearningRateDecayerFactory import get_lr_decayer
 from lr_decayers.LearningRateDecayerParent import LearningRateDecayerParent
 from models.ModelFactory import get_model
 from utils import CommonUtils01 as CommonUtils
+from loss_functions.LossUtils01 import TVLoss
 
 this_filepath = Path(__file__)
 this_filename = this_filepath.stem
@@ -54,6 +55,8 @@ class Trainer:
         self.output_dirpath = output_dirpath
         self.logger = SummaryWriter((output_dirpath / 'logs').as_posix())
         self.verbose_log = verbose_log
+        self.coarse_mlp_needed = 'coarse_mlp' in self.configs['model']
+        self.fine_mlp_needed = 'fine_mlp' in self.configs['model']
 
         self.model.to(self.device)
         return
@@ -90,11 +93,21 @@ class Trainer:
                     sub_input_batch[key] = input_batch[key].copy()
                 else:
                     sub_input_batch[key] = input_batch[key]
-            sub_output_batch = self.model(sub_input_batch)
+            sub_output_batch = self.model(sub_input_batch) #add: output density plane value for tv_loss
             sub_iter_losses_dict = self.loss_computer.compute_losses(sub_input_batch, sub_output_batch)
             sub_batch_loss = sub_iter_losses_dict['TotalLoss']
+            ##### TODO: add tv loss here (import to compute loss later QQ) #####
+            tvreg = TVLoss()
+            loss_tv = 0
+            if self.coarse_mlp_needed:
+                loss_tv += self.model.coarse_model.TV_loss_density(tvreg) * 1
+                loss_tv += self.model.coarse_model.TV_loss_app(tvreg) * 1
+            if self.fine_mlp_needed:
+                loss_tv += self.model.fine_model.TV_loss_density(tvreg) * 1
+                loss_tv += self.model.fine_model.TV_loss_app(tvreg) * 1
+            sub_batch_loss += loss_tv
+            
             sub_batch_loss.backward()
-
             iter_losses_dict = update_losses_dict_(iter_losses_dict, sub_iter_losses_dict, num_samples_=1)
             delete_dict(sub_output_batch)
             delete_dict(sub_input_batch)
@@ -219,7 +232,7 @@ class Trainer:
                     'depth_ndc_other_fine', 'depth_var_ndc_other_fine'
                 ]
                 delete_dict_elements(output_batch_chunk, useless_output_keys)
-
+                # breakpoint()
                 output_batches.append(output_batch_chunk)
                 frame_losses_dicts.append(frame_losses_dict_chunk)
             output_batch = merge_output_batches_(output_batches)
@@ -230,7 +243,15 @@ class Trainer:
             total_num_samples += 1
 
             # Save all predictions
+            # breakpoint()
             for mode in ['coarse', 'fine']:
+                if mode == "fine" and self.fine_mlp_needed == False:
+                    print("pass fine validation")
+                    continue
+                if mode == "coarse" and self.coarse_mlp_needed == False:
+                    print("pass coarse validation")
+                    continue
+                # breakpoint()
                 frame_output_path = save_dirpath / f'predicted_frames/{frame_num:04}_{mode}_Iter{iter_num + 1:05}.png'
                 depth_output_path = save_dirpath / f'predicted_depths/{frame_num:04}_{mode}_Iter{iter_num + 1:05}.npy'
                 depth_var_output_path = save_dirpath / f'predicted_depths_variance/{frame_num:04}_{mode}_Iter{iter_num + 1:05}.npy'
@@ -247,7 +268,8 @@ class Trainer:
                     for j, sec_frame_num in enumerate([x for x in frame_nums if x != frame_num]):
                         vis2_output_path = save_dirpath / f'predicted_visibilities/{frame_num:04}_{sec_frame_num:04}_{mode}_Iter{iter_num + 1:05}.npy'
                         self.save_numpy_array(vis2_output_path, post_process_output_(output_batch[f'visibility2_{mode}'][:, j], resolution), as_png=True)
-
+                # breakpoint()
+                
             # Save all loss maps
             if self.configs['validation_save_loss_maps']:
                 for loss_name in frame_losses_dict.keys():

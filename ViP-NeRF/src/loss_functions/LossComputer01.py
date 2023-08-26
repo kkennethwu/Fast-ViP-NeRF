@@ -48,6 +48,8 @@ class LossComputer:
             if loss_dict is not None:
                 loss_values[loss_name] = loss_dict
                 total_loss += loss_weight * loss_dict['loss_value']
+        ##### Add tv_Loss and reg_loss #####
+        
         loss_values['TotalLoss'] = total_loss
         return loss_values
 

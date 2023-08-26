@@ -32,12 +32,15 @@ class NerfTester:
         self.model = None
         self.model_configs = model_configs
         self.device = CommonUtils.get_device(test_configs['device'])
+        self.coarse_mlp_needed = 'coarse_mlp' in self.train_configs['model']
+        self.fine_mlp_needed = 'fine_mlp' in self.train_configs['model']
 
         self.build_model()
         return
 
     def build_model(self):
         self.data_preprocessor = get_data_preprocessor(self.train_configs, mode='test', model_configs=self.model_configs)
+        # breakpoint()
         self.model = get_model(self.train_configs, self.model_configs)
         # self.model = torch.nn.DataParallel(self.model, device_ids=self.test_configs['device'])
         return
@@ -58,7 +61,6 @@ class NerfTester:
                       intrinsic: Optional[numpy.ndarray] = None, view_intrinsic: Optional[numpy.ndarray] = None, secondary_intrinsics: Optional[List[numpy.ndarray]] = None):
         input_dict = self.data_preprocessor.create_test_data(camera_pose, view_camera_pose, secondary_poses, True,
                                                              intrinsic, view_intrinsic, secondary_intrinsics)
-
         with torch.no_grad():
             output_dict = self.model(input_dict, sec_views_vis=secondary_poses is not None)
 
