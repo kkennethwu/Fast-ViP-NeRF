@@ -317,13 +317,16 @@ class Trainer:
 
         # self.save_model(0, saved_models_dirpath)
         start_iter_num = self.load_model(saved_models_dirpath)
-        # setup lr_factor
+        ##### TODO: setup lr_factor #####
         if self.configs['lr_decay_iters'] > 0:
             lr_factor = self.configs['lr_decay_target_ratio']**(1/self.configs['lr_decay_iters'])
         else:
             self.configs['lr_decay_iters'] = self.configs['num_iterations']
             lr_factor = self.configs['lr_decay_target_ratio']**(1/self.configs['num_iterations'])
 
+        aabb = torch.tensor(self.configs['aabb']).to("cuda")
+        reso_cur = N_to_reso(self.configs['N_voxel_init'], aabb)
+        self.configs['model']['coarse_mlp']['num_samples'] = min(self.configs['model']['coarse_mlp']['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
         for iter_num in tqdm(range(start_iter_num, total_num_iters), initial=start_iter_num, total=total_num_iters,
                              mininterval=1, leave=self.verbose_log):
             # iter_lr = self.lr_decayer.get_updated_learning_rate(iter_num)
@@ -352,13 +355,12 @@ class Trainer:
             if (iter_num + 1) >= total_num_iters:
                 break
             
-            ##### TODO: implement upsampling #####
-            # breakpoint()
+            #### TODO: implement upsampling #####
             if iter_num in upsamp_list:
                 print("gridSize before upsampling: ", self.model.coarse_model.gridSize)
                 n_voxels = N_voxel_list.pop(0)
                 reso_cur = N_to_reso(n_voxels, self.model.coarse_model.aabb)
-                self.configs['model']['num_samples'] = min(self.configs['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
+                self.configs['model']['coarse_mlp']['num_samples'] = min(self.configs['model']['coarse_mlp']['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
                 self.model.coarse_model.upsample_volume_grid(reso_cur)
 
                 if self.configs['lr_upsample_reset']:
@@ -594,9 +596,8 @@ def start_training(configs: dict):
     return
 
 
-def N_to_reso(n_voxels, bbox):
+def N_to_reso(n_voxels, bbox): # have some problem
     xyz_min, xyz_max = bbox
-    breakpoint()
     dim = len(xyz_min)
     voxel_size = ((xyz_max - xyz_min).prod() / n_voxels).pow(1 / dim)
     return ((xyz_max - xyz_min) / voxel_size).long().tolist()

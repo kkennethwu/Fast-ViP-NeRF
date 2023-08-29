@@ -419,7 +419,6 @@ def demo():
             'N_voxel_final': 262144000, # 640**3'
             'upsamp_list': [2000,3000,4000,5500],
             'aabb': [[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]], # define scene_box
-            'max_nSmaples': 1e6,
             'step_ratio': 0.5,
             'lr_upsample_reset': True,
             'lr_decay_target_ratio': 0.1,
@@ -430,6 +429,7 @@ def demo():
                 'name': 'VipNeRF01',
                 'coarse_mlp': {
                     'num_samples': 128,
+                    'max_nSamples': 1e6,
                     'netdepth': 8,
                     'netwidth': 256,
                     'points_positional_encoding_degree': 10,
@@ -502,7 +502,7 @@ def demo():
             'test_num': test_num,
             'test_set_num': 2,
             'train_num': train_num,
-            'model_name': 'Model_Iter200000.tar',
+            'model_name': 'Model_Iter030000.tar',
             'database_name': 'NeRF_LLFF',
             'database_dirpath': 'NeRF_LLFF/data',
             'resolution_suffix': train_configs['data_loader']['resolution_suffix'],

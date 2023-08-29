@@ -503,17 +503,18 @@ class MLP(torch.nn.Module):
         self.matMode = [[0,1], [0,2], [1,2]]
         self.vecMode =  [2, 1, 0]
         # self.gridSize = torch.tensor([331, 368, 220]).to(f"cuda") # device problem
-        self.gridSize = torch.tensor([706, 786, 471]).to(f"cuda") # device problem
+        self.gridSize = torch.tensor([128, 128, 128]).to("cuda") # device problem
         self.density_n_comp = [16, 4, 4] # n_lamb_sigma = [16,4,4]
         self.app_n_comp = [48, 12, 12] # n_lamb_sh = [48,12,12]
         self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)
-        self.aabb = torch.tensor([[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]]).to(f"cuda") # define scene_box
+        # self.aabb = torch.tensor([[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]]).to(f"cuda") # define scene_box
         self.aabb = torch.tensor(self.configs['aabb']).to("cuda")
         self.aabbSize = self.aabb[1] - self.aabb[0]
         self.invaabbSize = 2.0/self.aabbSize
         self.init_svd_volume(self.gridSize[0], f"cuda") # 141 is grid size, need to be modify
         self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128).to(f"cuda")
         # self.density_n_comp = 
+        self.step_ratio = configs['step_ratio']
         
         return
         
@@ -803,7 +804,7 @@ class MLP(torch.nn.Module):
         print("grid size", gridSize)
         self.aabbSize = self.aabb[1] - self.aabb[0]
         self.invaabbSize = 2.0/self.aabbSize
-        self.gridSize= torch.LongTensor(gridSize).to(self.device)
+        self.gridSize= torch.LongTensor(gridSize).to("cuda")
         self.units=self.aabbSize / (self.gridSize-1)
         self.stepSize=torch.mean(self.units)*self.step_ratio
         self.aabbDiag = torch.sqrt(torch.sum(torch.square(self.aabbSize)))
