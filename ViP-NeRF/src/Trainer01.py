@@ -11,7 +11,7 @@ import random
 from pathlib import Path
 from typing import Optional
 
-import numpy
+import numpy 
 import pandas
 import simplejson
 import skimage.io
@@ -61,7 +61,7 @@ class Trainer:
         self.model.to(self.device)
         return
 
-    def train_one_iter(self, iter_num: int):
+    def train_one_iter(self, iter_num: int, lr_factor):
         def update_losses_dict_(iter_losses_dict_: dict, sub_iter_losses_dict_: dict, num_samples_: int):
             if iter_losses_dict_ is None:
                 iter_losses_dict_ = {}
@@ -100,11 +100,11 @@ class Trainer:
             tvreg = TVLoss()
             loss_tv = 0
             if self.coarse_mlp_needed:
-                loss_tv += self.model.coarse_model.TV_loss_density(tvreg) * 1
-                loss_tv += self.model.coarse_model.TV_loss_app(tvreg) * 1
+                loss_tv += self.model.coarse_model.TV_loss_density(tvreg) * 1 * lr_factor
+                loss_tv += self.model.coarse_model.TV_loss_app(tvreg) * 1 * lr_factor
             if self.fine_mlp_needed:
-                loss_tv += self.model.fine_model.TV_loss_density(tvreg) * 1
-                loss_tv += self.model.fine_model.TV_loss_app(tvreg) * 1
+                loss_tv += self.model.fine_model.TV_loss_density(tvreg) * 1 * lr_factor
+                loss_tv += self.model.fine_model.TV_loss_app(tvreg) * 1 * lr_factor
             sub_batch_loss += loss_tv
             
             sub_batch_loss.backward()
@@ -292,7 +292,14 @@ class Trainer:
                 loss_value_ = loss_['loss_value'] if isinstance(loss_, dict) else loss_
                 self.logger.add_scalar(f'{label}/{key}', loss_value_, iter_num_)
             return
-
+        
+        N_voxel_init = self.configs['N_voxel_init']
+        N_voxel_final = self.configs['N_voxel_final']
+        upsamp_list = self.configs['upsamp_list']
+        #linear in logrithmic space
+        N_voxel_list = (torch.round(torch.exp(torch.linspace(numpy.log(N_voxel_init), numpy.log(N_voxel_final), len(upsamp_list)+1))).long()).tolist()[1:]
+        
+        
         train_num = self.configs['train_num']
         scene_id = self.configs['data_loader']['scene_id']
         print(f'Training {train_num}/{scene_id} begins...')
@@ -310,14 +317,24 @@ class Trainer:
 
         # self.save_model(0, saved_models_dirpath)
         start_iter_num = self.load_model(saved_models_dirpath)
+        # setup lr_factor
+        if self.configs['lr_decay_iters'] > 0:
+            lr_factor = self.configs['lr_decay_target_ratio']**(1/self.configs['lr_decay_iters'])
+        else:
+            self.configs['lr_decay_iters'] = self.configs['num_iterations']
+            lr_factor = self.configs['lr_decay_target_ratio']**(1/self.configs['num_iterations'])
+
         for iter_num in tqdm(range(start_iter_num, total_num_iters), initial=start_iter_num, total=total_num_iters,
                              mininterval=1, leave=self.verbose_log):
-            iter_lr = self.lr_decayer.get_updated_learning_rate(iter_num)
+            # iter_lr = self.lr_decayer.get_updated_learning_rate(iter_num)
+            
             for param_group in self.optimizer.param_groups:
-                param_group['lr'] = iter_lr
+                param_group['lr'] = param_group['lr'] * lr_factor
 
-            iter_losses_dict = self.train_one_iter(iter_num)
-            iter_losses_dict['lr'] = iter_lr
+            iter_losses_dict = self.train_one_iter(iter_num, lr_factor)
+            
+            iter_losses_dict['lr_voxel'] = self.configs['lr_initial_voxel'] * lr_factor
+            iter_losses_dict['lr_mlp'] = self.configs['lr_initial_mlp'] * lr_factor
             update_losses_data_(iter_num + 1, iter_losses_dict, 'train')
 
             if (iter_num + 1) % validation_interval == 0:
@@ -334,6 +351,25 @@ class Trainer:
 
             if (iter_num + 1) >= total_num_iters:
                 break
+            
+            ##### TODO: implement upsampling #####
+            # breakpoint()
+            if iter_num in upsamp_list:
+                print("gridSize before upsampling: ", self.model.coarse_model.gridSize)
+                n_voxels = N_voxel_list.pop(0)
+                reso_cur = N_to_reso(n_voxels, self.model.coarse_model.aabb)
+                self.configs['model']['num_samples'] = min(self.configs['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
+                self.model.coarse_model.upsample_volume_grid(reso_cur)
+
+                if self.configs['lr_upsample_reset']:
+                    print("reset lr to initial")
+                    lr_scale = 1 #0.1 ** (iteration / args.n_iters)
+                else:
+                    lr_scale = self.configs['lr_decay_target_ratio'] ** (iter_num / self.configs['num_iterations'])
+                grad_vars = self.model.coarse_model.get_optparam_groups(self.configs['lr_initial_voxel']*lr_scale, self.configs['lr_initial_mlp']*lr_scale)
+                self.optimizer = torch.optim.Adam(grad_vars, betas=(0.9, 0.99))
+                print("gridSize after upsampling: ", self.model.coarse_model.gridSize)
+        
 
         # save_plots(logs_dirpath)
         return
@@ -517,6 +553,7 @@ def start_training(configs: dict):
     
     scene_ids = configs['data_loader']['scene_ids']
     for scene_id in scene_ids:
+        # breakpoint()
         init_seeds(configs['seed'])
         scene_output_dirpath = output_dirpath / f'{scene_id}'
         scene_output_dirpath.mkdir(parents=True, exist_ok=configs['resume_training'])
@@ -538,8 +575,10 @@ def start_training(configs: dict):
         model = get_model(configs, model_configs)
         # model = torch.nn.DataParallel(model, device_ids=configs['device'])
         loss_computer = LossComputer(configs)
-        optimizer = torch.optim.Adam(list(model.parameters()), lr=configs['optimizer']['lr_initial'],
-                                     betas=(configs['optimizer']['beta1'], configs['optimizer']['beta2']))
+        grad_vars = model.coarse_model.get_optparam_groups(configs['lr_initial_voxel'], configs['lr_initial_mlp'])
+        optimizer = torch.optim.Adam(grad_vars, betas=(0.9,0.99))
+        # optimizer = torch.optim.Adam(list(model.parameters()), lr=configs['optimizer']['lr_initial'],
+        #                              betas=(configs['optimizer']['beta1'], configs['optimizer']['beta2']))
         lr_decayer = get_lr_decayer(configs)
 
         save_model_configs(scene_output_dirpath, model_configs, 'ModelConfigs.json')
@@ -553,3 +592,14 @@ def start_training(configs: dict):
         del train_data_loader, train_data_preprocessor, val_data_loader, val_data_preprocessor
         torch.cuda.empty_cache()
     return
+
+
+def N_to_reso(n_voxels, bbox):
+    xyz_min, xyz_max = bbox
+    breakpoint()
+    dim = len(xyz_min)
+    voxel_size = ((xyz_max - xyz_min).prod() / n_voxels).pow(1 / dim)
+    return ((xyz_max - xyz_min) / voxel_size).long().tolist()
+
+def cal_n_samples(reso, step_ratio=0.5):
+    return int(numpy.linalg.norm(reso)/step_ratio)

@@ -48,7 +48,6 @@ def start_training(train_configs: dict):
     scene_names = train_configs['data_loader'].get('scene_names', None)
     Trainer.save_configs(output_dirpath, train_configs)
     train_configs['data_loader']['scene_names'] = scene_names
-
     if train_configs['data_loader']['scene_names'] is None:
         set_num = train_configs['data_loader']['train_set_num']
         video_datapath = database_dirpath / f'train_test_sets/set{set_num:02}/TrainVideosData.csv'
@@ -841,7 +840,7 @@ def demo1f():
             'data_loader': {
                 'data_loader_name': 'NerfLlffDataLoader01',
                 'data_preprocessor_name': 'DataPreprocessor01',
-                'train_set_num': 4,
+                'train_set_num': 19,
                 'scene_names': [scene_name],
                 'resolution_suffix': '_down4',
                 'recenter_camera_poses': True,
@@ -853,11 +852,11 @@ def demo1f():
                 'num_rays': 1024,
                 'precrop_fraction': 1,
                 'precrop_iterations': -1,
-                'visibility_prior': {
-                    'load_masks': True,
-                    'load_weights': False,
-                    'masks_dirname': 'VW04',
-                },
+                # 'visibility_prior': {
+                #     'load_masks': True,
+                #     'load_weights': False,
+                #     'masks_dirname': 'VW04',
+                # },
             },
             'model': {
                 'name': 'VipNeRF01',
@@ -869,18 +868,18 @@ def demo1f():
                     'views_positional_encoding_degree': 4,
                     'use_view_dirs': True,
                     'view_dependent_rgb': True,
-                    'predict_visibility': True,
+                    'predict_visibility': False,
                 },
-                'fine_mlp': {
-                    'num_samples': 128,
-                    'netdepth': 8,
-                    'netwidth': 256,
-                    'points_positional_encoding_degree': 10,
-                    'views_positional_encoding_degree': 4,
-                    'use_view_dirs': True,
-                    'view_dependent_rgb': True,
-                    'predict_visibility': True,
-                },
+                # 'fine_mlp': {
+                #     'num_samples': 128,
+                #     'netdepth': 8,
+                #     'netwidth': 256,
+                #     'points_positional_encoding_degree': 10,
+                #     'views_positional_encoding_degree': 4,
+                #     'use_view_dirs': True,
+                #     'view_dependent_rgb': True,
+                #     'predict_visibility': True,
+                # },
                 'chunk': 4*1024,
                 'lindisp': False,
                 'netchunk': 16*1024,
@@ -893,16 +892,16 @@ def demo1f():
                     'name': 'MSE01',
                     'weight': 1,
                 },
-                {
-                    'name': 'VisibilityLoss01',
-                    'weight': 0.1,
-                },
-                {
-                    'name': 'VisibilityPriorLoss01',
-                    'iter_weights': {
-                        '0': 0, '30000': 0.001,
-                    },
-                },
+                # {
+                #     'name': 'VisibilityLoss01',
+                #     'weight': 0.1,
+                # },
+                # {
+                #     'name': 'VisibilityPriorLoss01',
+                #     'iter_weights': {
+                #         '0': 0, '30000': 0.001,
+                #     },
+                # },
             ],
             'optimizer': {
                 'lr_decayer_name': 'NeRFLearningRateDecayer01',
@@ -912,26 +911,27 @@ def demo1f():
                 'beta2': 0.999,
             },
             'resume_training': True,
-            'num_iterations': 50000,
-            'validation_interval': 10000,
+            'num_iterations': 30000,
+            'validation_interval': 5000,
             'validation_chunk_size': 64 * 1024,
             'validation_save_loss_maps': False,
-            'model_save_interval': 10000,
+            'model_save_interval': 30000,
             'mixed_precision_training': False,
-            'seed': numpy.random.randint(1000),
-            'device': [0, 1],
+            # 'seed': numpy.random.randint(1000),
+            'seed': 0,
+            'device': [0],
         }
         test_configs = {
             'Tester': f'{this_filename}/{Tester.this_filename}',
             'test_num': test_num,
             'test_set_num': 4,
             'train_num': train_num,
-            'model_name': 'Model_Iter050000.tar',
+            'model_name': 'Model_Iter030000.tar',
             'database_name': 'NeRF_LLFF',
             'database_dirpath': 'NeRF_LLFF/data',
             'resolution_suffix': train_configs['data_loader']['resolution_suffix'],
             'scene_names': [scene_name],
-            'device': [0, 1],
+            'device': [0],
         }
         start_training(train_configs)
         start_testing(test_configs)
@@ -983,12 +983,12 @@ def demo4():
 
 
 def main():
-    demo1a()
+    # demo1a()
     # demo1b()
     # demo1c()
     # demo1d()
     # demo1e()
-    # demo1f()
+    demo1f()
     return
 
 

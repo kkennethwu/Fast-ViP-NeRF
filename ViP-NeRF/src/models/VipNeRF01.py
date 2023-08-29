@@ -499,17 +499,20 @@ class MLP(torch.nn.Module):
             self.feature_linear = torch.nn.Linear(self.W, self.W)
             self.views_output_linear = torch.nn.Linear(self.W // 2, views_output_dim)
         #### For TensoRF #####
+        # breakpoint()
         self.matMode = [[0,1], [0,2], [1,2]]
         self.vecMode =  [2, 1, 0]
-        self.gridSize = torch.tensor([141, 157, 94]).to("cuda") # device problem
+        # self.gridSize = torch.tensor([331, 368, 220]).to(f"cuda") # device problem
+        self.gridSize = torch.tensor([706, 786, 471]).to(f"cuda") # device problem
         self.density_n_comp = [16, 4, 4] # n_lamb_sigma = [16,4,4]
         self.app_n_comp = [48, 12, 12] # n_lamb_sh = [48,12,12]
         self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)
-        self.aabb = torch.tensor([[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]]).to("cuda") # define scene_box
+        self.aabb = torch.tensor([[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]]).to(f"cuda") # define scene_box
+        self.aabb = torch.tensor(self.configs['aabb']).to("cuda")
         self.aabbSize = self.aabb[1] - self.aabb[0]
         self.invaabbSize = 2.0/self.aabbSize
-        self.init_svd_volume(self.gridSize[0], "cuda") # 141 is grid size, need to be modify
-        self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128).to("cuda")
+        self.init_svd_volume(self.gridSize[0], f"cuda") # 141 is grid size, need to be modify
+        self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128).to(f"cuda")
         # self.density_n_comp = 
         
         return
@@ -772,11 +775,52 @@ class MLP(torch.nn.Module):
     def normalize_coord(self, xyz_sampled):
         return (xyz_sampled-self.aabb[0]) * self.invaabbSize - 1
 
+    @torch.no_grad()
+    def up_sampling_VM(self, plane_coef, line_coef, res_target):
+
+        for i in range(len(self.vecMode)):
+            vec_id = self.vecMode[i]
+            mat_id_0, mat_id_1 = self.matMode[i]
+            plane_coef[i] = torch.nn.Parameter(
+                F.interpolate(plane_coef[i].data, size=(res_target[mat_id_1], res_target[mat_id_0]), mode='bilinear',
+                              align_corners=True))
+            line_coef[i] = torch.nn.Parameter(
+                F.interpolate(line_coef[i].data, size=(res_target[vec_id], 1), mode='bilinear', align_corners=True))
+
+
+        return plane_coef, line_coef
+    
+    @torch.no_grad()
+    def upsample_volume_grid(self, res_target):
+        self.app_plane, self.app_line = self.up_sampling_VM(self.app_plane, self.app_line, res_target)
+        self.density_plane, self.density_line = self.up_sampling_VM(self.density_plane, self.density_line, res_target)
+
+        self.update_stepSize(res_target)
+        print(f'upsamping to {res_target}')
+    
+    def update_stepSize(self, gridSize):
+        print("aabb", self.aabb.view(-1))
+        print("grid size", gridSize)
+        self.aabbSize = self.aabb[1] - self.aabb[0]
+        self.invaabbSize = 2.0/self.aabbSize
+        self.gridSize= torch.LongTensor(gridSize).to(self.device)
+        self.units=self.aabbSize / (self.gridSize-1)
+        self.stepSize=torch.mean(self.units)*self.step_ratio
+        self.aabbDiag = torch.sqrt(torch.sum(torch.square(self.aabbSize)))
+        self.nSamples=int((self.aabbDiag / self.stepSize).item()) + 1
+        print("sampling step size: ", self.stepSize)
+        print("sampling number: ", self.nSamples)
+    
     def compute_features(self, xyz_sampled):
         pass
 
-    def get_optparam_groups(self, lr_init_spatial = 0.02, lr_init_network = 0.001):
-        pass
+    def get_optparam_groups(self, lr_init_spatialxyz = 0.02, lr_init_network = 0.001):
+        grad_vars = [{'params': self.density_line, 'lr': lr_init_spatialxyz}, {'params': self.density_plane, 'lr': lr_init_spatialxyz},
+                     {'params': self.app_line, 'lr': lr_init_spatialxyz}, {'params': self.app_plane, 'lr': lr_init_spatialxyz},
+                         {'params': self.basis_mat.parameters(), 'lr':lr_init_network}]
+        if isinstance(self.renderModule, torch.nn.Module):
+            grad_vars += [{'params':self.renderModule.parameters(), 'lr':lr_init_network}]
+        return grad_vars
 
 
 class MLPRender_Fea(torch.nn.Module):
