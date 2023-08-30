@@ -115,6 +115,7 @@ class VipNeRF(torch.nn.Module):
                 pts_coarse = rays_o_ndc[..., None, :] + rays_d_ndc[..., None, :] * z_vals_coarse[..., :, None]  # [num_rays, num_samples, 3]
             network_input_coarse = {
                 'pts': pts_coarse,
+                'z_vals': z_vals_coarse
             }
             if self.configs['model']['coarse_mlp']['use_view_dirs']:
                 network_input_coarse['view_dirs'] = view_dirs
@@ -277,30 +278,32 @@ class VipNeRF(torch.nn.Module):
         Prepares inputs and applies network 'nerf_mlp'.
         """
         
-        pts_flat = torch.reshape(input_dict['pts'], [-1, input_dict['pts'].shape[-1]])
+        # pts_flat = torch.reshape(input_dict['pts'], [-1, input_dict['pts'].shape[-1]])
         network_input_dict = {
-            'pts': pts_flat,
+            'pts': input_dict['pts'],
+            'z_vals': input_dict['z_vals'],
         }
         if nerf_mlp.mlp_configs['use_view_dirs']:
             viewdirs = input_dict['view_dirs']
             if viewdirs.ndim == 2:
                 viewdirs = viewdirs[:,None].expand(input_dict['pts'].shape)
-            viewdirs_flat = torch.reshape(viewdirs, [-1, viewdirs.shape[-1]])
-            network_input_dict['view_dirs'] = viewdirs_flat
+            # viewdirs_flat = torch.reshape(viewdirs, [-1, viewdirs.shape[-1]])
+            network_input_dict['view_dirs'] = viewdirs
 
             if nerf_mlp.predict_visibility and ('view_dirs2' in input_dict):
-                view_dirs2 = input_dict['view_dirs2']
-                view_dirs2_flat = torch.reshape(view_dirs2, [-1, view_dirs2.shape[-2], view_dirs2.shape[-1]])  # (nr*ns, nf-1, 3)
-                network_input_dict['view_dirs2'] = view_dirs2_flat
+                view_dirs2 = input_dict['view_dirs2'][:, : , 0, :]
+                
+                # view_dirs2_flat = torch.reshape(view_dirs2, [-1, view_dirs2.shape[-2], view_dirs2.shape[-1]])  # (nr*ns, nf-1, 3)
+                network_input_dict['view_dirs2'] = view_dirs2
 
         # nerf_mlp = nerf_mlp.to(pts_flat.device)
         ##### _STEP 5: input to the nerf_mlp #####
         network_output_dict = self.batchify(nerf_mlp)(network_input_dict)
-        for k, v in network_output_dict.items():
-            if isinstance(v, torch.Tensor):
-                network_output_dict[k] = torch.reshape(v, list(input_dict['pts'].shape[:-1]) + list(v.shape[1:]))
-            else:
-                raise NotImplementedError
+        # for k, v in network_output_dict.items():
+        #     if isinstance(v, torch.Tensor):
+        #         network_output_dict[k] = torch.reshape(v, list(input_dict['pts'].shape[:-1]) + list(v.shape[1:]))
+        #     else:
+        #         raise NotImplementedError
         return network_output_dict
 
     def batchify(self, nerf_mlp):
@@ -352,7 +355,7 @@ class VipNeRF(torch.nn.Module):
             delta = z_dists * torch.norm(rays_d_ndc[...,None,:], dim=-1)
 
         rgb = network_output_dict['rgb']  # [N_rays, N_samples, 3]
-        sigma = network_output_dict['sigma'][..., 0]  # [N_rays, N_samples]
+        sigma = network_output_dict['sigma']  # [N_rays, N_samples]
         alpha = 1. - torch.exp(-sigma * delta)  # [N_rays, N_samples]
         visibility = torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1)).to(rays_d.device), 1.-alpha + 1e-10], -1), -1)[:, :-1]
         weights = alpha * visibility
@@ -389,7 +392,7 @@ class VipNeRF(torch.nn.Module):
         if self.predict_visibility and sec_views_vis and ('visibility2' in network_output_dict):
             vis2_point3d = network_output_dict['visibility2']
             # breakpoint()
-            vis2_pixel = torch.sum(weights[..., None] * vis2_point3d[..., 0], dim=-2) / (acc_map[..., None] + 1e-6)  # (nr, nf-1)
+            vis2_pixel = torch.sum(weights[..., None] * vis2_point3d, dim=-2) / (acc_map[..., None] + 1e-6)  # (nr, nf-1)
             return_dict['visibility2'] = vis2_pixel
         return return_dict
 
@@ -502,11 +505,8 @@ class MLP(torch.nn.Module):
         # breakpoint()
         self.matMode = [[0,1], [0,2], [1,2]]
         self.vecMode =  [2, 1, 0]
-
-        self.gridSize = torch.tensor(self.mlp_configs['gridSize']).to("cuda:1")
-        
         # self.gridSize = torch.tensor([331, 368, 220]).to(f"cuda") # device problem
-        self.gridSize = torch.tensor([128, 128, 128]).to("cuda:1") # device problem
+        self.gridSize = torch.tensor([141, 157, 94]).to("cuda:1") # device problem
         self.density_n_comp = [16, 4, 4] # n_lamb_sigma = [16,4,4]
         self.app_n_comp = [48, 12, 12] # n_lamb_sh = [48,12,12]
         self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)
@@ -544,9 +544,20 @@ class MLP(torch.nn.Module):
         # input_batch['pts'].shape = [16384. 3]
         # input_batch['view_dirs'].shape = [16384, 3]
         # input_batch['view_dirs2'].shape = [16384, 3]
+        def raw2alpha(sigma, dist):
+            # sigma, dist  [N_rays, N_samples]
+            alpha = 1. - torch.exp(-sigma*dist)
+
+            T = torch.cumprod(torch.cat([torch.ones(alpha.shape[0], 1).to(alpha.device), 1. - alpha + 1e-10], -1), -1)
+
+            weights = alpha * T[:, :-1]  # [N_rays, N_samples]
+            # return alpha, weights, T[:,-1:]
+            return alpha, weights, T[:, :-1]
         input_pts = input_batch['pts']
+        z_vals = input_batch['z_vals']
         output_batch = {}
-        
+        dists = torch.cat((z_vals[:, 1:] - z_vals[:, :-1], torch.zeros_like(z_vals[:, :1])), dim=-1)
+
         # '''
         # TENSORF IMPLEMENTATION #
         input_pts = self.normalize_coord(input_pts)
@@ -556,17 +567,20 @@ class MLP(torch.nn.Module):
         # if not self.view_dep_rgb:
         #     rgb = pts_outputs['rgb_view_independent']
         ########## TODO: decomposite 'input_pts' and output 'sigma_feature' ########## 
-        app_features = self.compute_appfeature_VM(input_pts)
+        alpha, weight, bg_weight = raw2alpha(view_independent_output_dcit['sigma'], dists)
+        app_mask = weight > 0.0001
+        
+        app_features = self.compute_appfeature_VM(input_pts[app_mask])
         ########## TODO: input "app_feature" and "primary_viewing_dir" to MLP ##########
         primary_view = input_batch["view_dirs"]
-        primary_output_dict = self.compute_view_dependent_output(input_pts, primary_view, app_features)
+        primary_output_dict = self.compute_view_dependent_output(input_pts, primary_view, app_features, app_mask=app_mask)
         output_batch.update(primary_output_dict)
         if self.view_dep_rgb: 
             rgb = primary_output_dict['rgb_view_dependent']
         ########## TODO: input "app_feature" and "secondary_viewing_dir" to MLP ##########
         if 'view_dirs2' in input_batch.keys():
             secondary_view = input_batch['view_dirs2']
-            secondary_output_dict = self.compute_view_dependent_output(input_pts, secondary_view, app_features)
+            secondary_output_dict = self.compute_view_dependent_output(input_pts, secondary_view, app_features, app_mask=app_mask)
             output_batch['visibility2'] = secondary_output_dict['visibility']
         # breakpoint()
         output_batch['rgb'] = rgb
@@ -720,10 +734,16 @@ class MLP(torch.nn.Module):
 
     def compute_view_independent_output(self, input_pts):
         output_dict = {}
-        sigma_feature = self.compute_densityfeature_VM(input_pts)
+        sigma = torch.zeros(input_pts.shape[:-1], device=input_pts.device)
+        mask_outbbox = ~((self.aabb[0] > input_pts) | (input_pts > self.aabb[1])).any(dim=-1)
+
+        sigma_feature = self.compute_densityfeature_VM(input_pts[mask_outbbox])
+
         output_dict['feature'] = sigma_feature
         valid_sigma = self.feature2density(sigma_feature)
-        output_dict['sigma'] = valid_sigma.view(len(valid_sigma), 1)
+        sigma[mask_outbbox] = valid_sigma
+        # output_dict['sigma'] = valid_sigma.view(len(valid_sigma), 1)
+        output_dict['sigma'] = sigma
         # if not self.view_dep_rgb:
         #     rgb = pts_output[..., ch_i:ch_i+3]
         #     rgb = torch.sigmoid(rgb)
@@ -734,25 +754,26 @@ class MLP(torch.nn.Module):
         
         
     
-    def compute_view_dependent_output(self, input_pts, view_dir, app_features):
+    def compute_view_dependent_output(self, input_pts, view_dir, app_features, app_mask=None):
         output_dict = {}
-        
-        if view_dir.ndim == 3:
-            # For viewdirs2
-            nf = view_dir.shape[1] + 1
-            app_features = app_features[:, None, :].repeat([1, nf-1, 1])  # (nc, nf-1, cv)
+        rgb = torch.zeros((*input_pts.shape[:2], 3), device=input_pts.device)
+        visibility = torch.zeros((*input_pts.shape[:2], 1), device=input_pts.device)
+        # if view_dir.ndim == 3:
+        #     # For viewdirs2
+        #     nf = view_dir.shape[1] + 1
+        #     app_features = app_features[:, None, :].repeat([1, nf-1, 1])  # (nc, nf-1, cv)
         # breakpoint()
-        view_output = self.renderModule(input_pts, view_dir, app_features)
+        view_output = self.renderModule(input_pts[app_mask], view_dir[app_mask], app_features)
         # breakpoint()
         ch_i = 0  # Denotes number of channels which have already been taken output
         if self.view_dep_rgb:
-            rgb = view_output[..., ch_i:ch_i+3] # 3 dimension
-            rgb = torch.sigmoid(rgb)
+            rgb[app_mask] = view_output[..., ch_i:ch_i+3] # 3 dimension
+            rgb[app_mask] = torch.sigmoid(rgb[app_mask])
             output_dict['rgb_view_dependent'] = rgb
             ch_i += 3
         if self.predict_visibility:
-            visibility = view_output[..., ch_i:ch_i+1] # 1 dimension
-            visibility = torch.sigmoid(visibility)
+            visibility[app_mask] = view_output[..., ch_i:ch_i+1] # 1 dimension
+            visibility[app_mask] = torch.sigmoid(visibility[app_mask])
             output_dict['visibility'] = visibility
             ch_i += 1
         return output_dict

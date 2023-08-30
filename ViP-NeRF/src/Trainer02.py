@@ -11,7 +11,7 @@ import random
 from pathlib import Path
 from typing import Optional
 
-import numpy 
+import numpy
 import pandas
 import simplejson
 import skimage.io
@@ -57,8 +57,10 @@ class Trainer:
         self.verbose_log = verbose_log
         self.coarse_mlp_needed = 'coarse_mlp' in self.configs['model']
         self.fine_mlp_needed = 'fine_mlp' in self.configs['model']
-
+        self.tvreg = TVLoss()
         self.model.to(self.device)
+        self.TV_weight_density = 1
+        self.TV_weight_app = 1
         return
 
     def train_one_iter(self, iter_num: int, lr_factor):
@@ -97,16 +99,21 @@ class Trainer:
             sub_iter_losses_dict = self.loss_computer.compute_losses(sub_input_batch, sub_output_batch)
             sub_batch_loss = sub_iter_losses_dict['TotalLoss']
             ##### TODO: add tv loss here (import to compute loss later QQ) #####
-            tvreg = TVLoss()
-            loss_tv = 0
+            self.TV_weight_density *= lr_factor
+            self.TV_weight_app *= lr_factor
             if self.coarse_mlp_needed:
-                loss_tv += self.model.coarse_model.TV_loss_density(tvreg) * 1 * lr_factor
-                loss_tv += self.model.coarse_model.TV_loss_app(tvreg) * 1 * lr_factor
+                if self.TV_weight_density > 0:
+                    sub_batch_loss += self.model.coarse_model.tensorf.TV_loss_density(self.tvreg) * self.TV_weight_density
+                if self.TV_weight_app > 0:
+                    sub_batch_loss += self.model.coarse_model.tensorf.TV_loss_app(self.tvreg) * self.TV_weight_app
+                # loss_tv += self.model.coarse_model.TV_loss_density(tvreg) * 1
+                # loss_tv += self.model.coarse_model.TV_loss_app(tvreg) * 1
+
             if self.fine_mlp_needed:
-                loss_tv += self.model.fine_model.TV_loss_density(tvreg) * 1 * lr_factor
-                loss_tv += self.model.fine_model.TV_loss_app(tvreg) * 1 * lr_factor
-            sub_batch_loss += loss_tv
-            
+                sub_batch_loss += self.model.fine_model.tensorf.TV_loss_density(self.tvreg) * self.TV_weight_density
+                sub_batch_loss += self.model.fine_model.tensorf.TV_loss_app(self.tvreg) * self.TV_weight_app
+                # loss_tv += self.model.fine_model.fine_model_test.TV_loss_density(tvreg) * 1
+                # loss_tv += self.model.fine_model.fine_model_test.TV_loss_app(tvreg) * 1
             sub_batch_loss.backward()
             iter_losses_dict = update_losses_dict_(iter_losses_dict, sub_iter_losses_dict, num_samples_=1)
             delete_dict(sub_output_batch)
@@ -243,13 +250,11 @@ class Trainer:
             total_num_samples += 1
 
             # Save all predictions
-            # breakpoint()
             for mode in ['coarse', 'fine']:
                 if mode == "fine" and self.fine_mlp_needed == False:
                     continue
                 if mode == "coarse" and self.coarse_mlp_needed == False:
                     continue
-                # breakpoint()
                 frame_output_path = save_dirpath / f'predicted_frames/{frame_num:04}_{mode}_Iter{iter_num + 1:05}.png'
                 depth_output_path = save_dirpath / f'predicted_depths/{frame_num:04}_{mode}_Iter{iter_num + 1:05}.npy'
                 depth_var_output_path = save_dirpath / f'predicted_depths_variance/{frame_num:04}_{mode}_Iter{iter_num + 1:05}.npy'
@@ -266,7 +271,6 @@ class Trainer:
                     for j, sec_frame_num in enumerate([x for x in frame_nums if x != frame_num]):
                         vis2_output_path = save_dirpath / f'predicted_visibilities/{frame_num:04}_{sec_frame_num:04}_{mode}_Iter{iter_num + 1:05}.npy'
                         self.save_numpy_array(vis2_output_path, post_process_output_(output_batch[f'visibility2_{mode}'][:, j], resolution), as_png=True)
-                # breakpoint()
                 
             # Save all loss maps
             if self.configs['validation_save_loss_maps']:
@@ -291,13 +295,6 @@ class Trainer:
                 self.logger.add_scalar(f'{label}/{key}', loss_value_, iter_num_)
             return
         
-        N_voxel_init = self.configs['N_voxel_init']
-        N_voxel_final = self.configs['N_voxel_final']
-        upsamp_list = self.configs['upsamp_list']
-        #linear in logrithmic space
-        N_voxel_list = (torch.round(torch.exp(torch.linspace(numpy.log(N_voxel_init), numpy.log(N_voxel_final), len(upsamp_list)+1))).long()).tolist()[1:]
-        
-        
         train_num = self.configs['train_num']
         scene_id = self.configs['data_loader']['scene_id']
         print(f'Training {train_num}/{scene_id} begins...')
@@ -312,30 +309,24 @@ class Trainer:
         # sample_save_interval = self.configs['sample_save_interval']
         model_save_interval = self.configs['model_save_interval']
         total_num_iters = self.configs['num_iterations']
-
+        lr_decay_iters = -1
+        lr_decay_target_ratio = 0.1
+        if lr_decay_iters > 0:
+            lr_factor = lr_decay_target_ratio**(1/lr_decay_iters)
+        else:
+            lr_decay_iters = total_num_iters
+            lr_factor = lr_decay_target_ratio**(1/total_num_iters)
         # self.save_model(0, saved_models_dirpath)
         start_iter_num = self.load_model(saved_models_dirpath)
-        ##### TODO: setup lr_factor #####
-        if self.configs['lr_decay_iters'] > 0:
-            lr_factor = self.configs['lr_decay_target_ratio']**(1/self.configs['lr_decay_iters'])
-        else:
-            self.configs['lr_decay_iters'] = self.configs['num_iterations']
-            lr_factor = self.configs['lr_decay_target_ratio']**(1/self.configs['num_iterations'])
-
-        # aabb = torch.tensor(self.configs['aabb']).to("cuda:1")
-        # reso_cur = N_to_reso(self.configs['N_voxel_init'], aabb)
-        # self.configs['model']['coarse_mlp']['num_samples'] = min(self.configs['model']['coarse_mlp']['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
         for iter_num in tqdm(range(start_iter_num, total_num_iters), initial=start_iter_num, total=total_num_iters,
                              mininterval=1, leave=self.verbose_log):
-            # iter_lr = self.lr_decayer.get_updated_learning_rate(iter_num)
-            
+            iter_lr = self.lr_decayer.get_updated_learning_rate(iter_num)
             for param_group in self.optimizer.param_groups:
-                param_group['lr'] = param_group['lr'] * lr_factor
+                # param_group['lr'] = iter_lr
+                param_group['lr'] *= lr_factor
 
             iter_losses_dict = self.train_one_iter(iter_num, lr_factor)
-            
-            iter_losses_dict['lr_voxel'] = self.configs['lr_initial_voxel'] * lr_factor
-            iter_losses_dict['lr_mlp'] = self.configs['lr_initial_mlp'] * lr_factor
+            iter_losses_dict['lr'] = iter_lr
             update_losses_data_(iter_num + 1, iter_losses_dict, 'train')
 
             if (iter_num + 1) % validation_interval == 0:
@@ -352,24 +343,6 @@ class Trainer:
 
             if (iter_num + 1) >= total_num_iters:
                 break
-            
-            #### TODO: implement upsampling #####
-            if iter_num in upsamp_list:
-                print("gridSize before upsampling: ", self.model.coarse_model.gridSize)
-                n_voxels = N_voxel_list.pop(0)
-                reso_cur = N_to_reso(n_voxels, self.model.coarse_model.aabb)
-                self.configs['model']['coarse_mlp']['num_samples'] = min(self.configs['model']['coarse_mlp']['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
-                self.model.coarse_model.upsample_volume_grid(reso_cur)
-
-                if self.configs['lr_upsample_reset']:
-                    print("reset lr to initial")
-                    lr_scale = 1 #0.1 ** (iteration / args.n_iters)
-                else:
-                    lr_scale = self.configs['lr_decay_target_ratio'] ** (iter_num / self.configs['num_iterations'])
-                grad_vars = self.model.coarse_model.get_optparam_groups(self.configs['lr_initial_voxel']*lr_scale, self.configs['lr_initial_mlp']*lr_scale)
-                self.optimizer = torch.optim.Adam(grad_vars, betas=(0.9, 0.99))
-                self.configs['model']['coarse_mlp']['gridSize'] = reso_cur
-                print("gridSize after upsampling: ", self.configs['model']['coarse_mlp']['gridSize'])        
 
         # save_plots(logs_dirpath)
         return
@@ -542,20 +515,7 @@ def save_model_configs(output_dirpath: Path, configs: dict, filename: Optional[s
             # raise RuntimeError(f'Configs mismatch while resuming training: {DeepDiff(old_configs, configs)}')
             print(f'Configs mismatch while resuming training: {DeepDiff(old_configs, configs)}')
     with open(configs_path.as_posix(), 'w') as configs_file:
-        json.dump(configs, configs_file, indent=4)
-    return
-
-def save_train_configs_for_testing(output_dirpath: Path, configs: dict, filename: Optional[str] = 'Configs.json'):
-    from json import JSONEncoder
-    configs_path = output_dirpath / filename
-    class NumpyArrayEncoder(JSONEncoder):
-        def default(self, obj):
-            if isinstance(obj, numpy.ndarray):
-                return obj.tolist()
-            return JSONEncoder.default(self, obj)
-
-    with open(configs_path.as_posix(), 'w') as configs_file:
-        json.dump(configs, configs_file, indent=4, cls=NumpyArrayEncoder)
+        simplejson.dump(configs, configs_file, indent=4)
     return
 
 
@@ -566,7 +526,6 @@ def start_training(configs: dict):
     
     scene_ids = configs['data_loader']['scene_ids']
     for scene_id in scene_ids:
-        # breakpoint()
         init_seeds(configs['seed'])
         scene_output_dirpath = output_dirpath / f'{scene_id}'
         scene_output_dirpath.mkdir(parents=True, exist_ok=configs['resume_training'])
@@ -585,16 +544,11 @@ def start_training(configs: dict):
                                                       raw_data_dict=val_data_loader.load_data(),
                                                       model_configs=train_data_preprocessor.get_model_configs())
         model_configs = train_data_preprocessor.get_model_configs()
-        # initial voxel grid
-        aabb = torch.tensor(configs['aabb']).to("cuda:1")
-        reso_cur = N_to_reso(configs['N_voxel_init'], aabb)
-        configs['model']['coarse_mlp']['gridSize'] = reso_cur
-
         model = get_model(configs, model_configs)
+        grad_vars = model.coarse_model.tensorf.get_optparam_groups(0.2, 0.001)
+        optimizer = torch.optim.Adam(grad_vars, betas=(0.9,0.99))
         # model = torch.nn.DataParallel(model, device_ids=configs['device'])
         loss_computer = LossComputer(configs)
-        grad_vars = model.coarse_model.get_optparam_groups(configs['lr_initial_voxel'], configs['lr_initial_mlp'])
-        optimizer = torch.optim.Adam(grad_vars, betas=(0.9,0.99))
         # optimizer = torch.optim.Adam(list(model.parameters()), lr=configs['optimizer']['lr_initial'],
         #                              betas=(configs['optimizer']['beta1'], configs['optimizer']['beta2']))
         lr_decayer = get_lr_decayer(configs)
@@ -610,13 +564,3 @@ def start_training(configs: dict):
         del train_data_loader, train_data_preprocessor, val_data_loader, val_data_preprocessor
         torch.cuda.empty_cache()
     return
-
-
-def N_to_reso(n_voxels, bbox): # have some problem
-    xyz_min, xyz_max = bbox
-    dim = len(xyz_min)
-    voxel_size = ((xyz_max - xyz_min).prod() / n_voxels).pow(1 / dim)
-    return ((xyz_max - xyz_min) / voxel_size).long().tolist()
-
-def cal_n_samples(reso, step_ratio=0.5):
-    return int(numpy.linalg.norm(reso)/step_ratio)
