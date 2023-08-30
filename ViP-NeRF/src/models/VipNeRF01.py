@@ -132,7 +132,6 @@ class VipNeRF(torch.nn.Module):
                                                        rays_d_ndc=rays_d_ndc, rays_o=rays_o, rays_d=rays_d,
                                                        sec_views_vis=sec_views_vis)
             weights_coarse = outputs_coarse['weights']
-
             return_dict['z_vals_coarse'] = z_vals_coarse
             for key in outputs_coarse:
                 return_dict[f'{key}_coarse'] = outputs_coarse[key]
@@ -339,6 +338,8 @@ class VipNeRF(torch.nn.Module):
 
     def volume_rendering(self, network_output_dict, z_vals=None, rays_o=None, rays_d=None, z_vals_ndc=None,
                          rays_d_ndc=None, sec_views_vis=False):
+        #print("fuck")
+        #breakpoint()
         if not self.ndc:
             inf_depth = torch.Tensor([1e10]).to(rays_d.device)
             z_vals1 = torch.cat([z_vals, inf_depth.expand(z_vals[...,:1].shape)], -1)
@@ -500,13 +501,13 @@ class MLP(torch.nn.Module):
         #### For TensoRF #####
         self.matMode = [[0,1], [0,2], [1,2]]
         self.vecMode =  [2, 1, 0]
-        self.gridSize = torch.tensor([141, 157, 94]).to("cuda") # device problem
+        self.gridSize = torch.tensor([141, 157, 94]).to("cuda:1") # device problem
         self.density_n_comp = [16, 4, 4] # n_lamb_sigma = [16,4,4]
         self.app_n_comp = [48, 12, 12] # n_lamb_sh = [48,12,12]
         self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)
         
-        self.init_svd_volume(self.gridSize[0], "cuda") # 141 is grid size, need to be modify
-        self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128).to("cuda")
+        self.init_svd_volume(self.gridSize[0], "cuda:1") # 141 is grid size, need to be modify
+        self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128).to("cuda:1")
         # self.density_n_comp = 
         
         return
@@ -555,12 +556,12 @@ class MLP(torch.nn.Module):
         ########## TODO: input "app_feature" and "secondary_viewing_dir" to MLP ##########
         if 'view_dirs2' in input_batch.keys():
             secondary_view = input_batch['view_dirs2']
-            breakpoint()
+            #breakpoint()
             secondary_view = torch.stack([x.squeeze() for x in secondary_view])
             secondary_output_dict = self.compute_view_dependent_output(input_pts, secondary_view, app_features)
             output_batch['visibility2'] = secondary_output_dict['visibility'].unsqueeze(2) # wtf why ?
         output_batch['rgb'] = rgb
-        breakpoint()
+        #breakpoint()
         # TENSORF IMPLEMENTATION #
         
 

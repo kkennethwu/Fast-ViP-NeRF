@@ -23,6 +23,8 @@ class LossComputer:
         module = importlib.import_module(f'loss_functions.{loss_name}')
         candidate_classes = inspect.getmembers(module, inspect.isclass)
         for candidate_class in candidate_classes:
+            #print("candidate_class[0]:",candidate_class[0])
+            #print("loss_name[:-2]:",loss_name[:-2])
             if candidate_class[0] == loss_name[:-2]:
                 loss_obj = candidate_class[1](configs, loss_configs)
                 break

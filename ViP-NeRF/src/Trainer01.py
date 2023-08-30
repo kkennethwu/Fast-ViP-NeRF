@@ -91,9 +91,13 @@ class Trainer:
                 else:
                     sub_input_batch[key] = input_batch[key]
             sub_output_batch = self.model(sub_input_batch)
+            #m = (sub_output_batch['z_vals_coarse'][:, 1:] + sub_output_batch['z_vals_coarse'][:, :-1]) * 0.5
+            #breakpoint()
             sub_iter_losses_dict = self.loss_computer.compute_losses(sub_input_batch, sub_output_batch)
             sub_batch_loss = sub_iter_losses_dict['TotalLoss']
+            
             sub_batch_loss.backward()
+
 
             iter_losses_dict = update_losses_dict_(iter_losses_dict, sub_iter_losses_dict, num_samples_=1)
             delete_dict(sub_output_batch)
@@ -515,6 +519,7 @@ def start_training(configs: dict):
         model_configs = train_data_preprocessor.get_model_configs()
         model = get_model(configs, model_configs)
         # model = torch.nn.DataParallel(model, device_ids=configs['device'])
+        
         loss_computer = LossComputer(configs)
         optimizer = torch.optim.Adam(list(model.parameters()), lr=configs['optimizer']['lr_initial'],
                                      betas=(configs['optimizer']['beta1'], configs['optimizer']['beta2']))
@@ -526,7 +531,7 @@ def start_training(configs: dict):
         trainer = Trainer(configs, model_configs, train_data_preprocessor, val_data_preprocessor, model, loss_computer,
                           optimizer, lr_decayer, scene_output_dirpath, configs['device'])
         trainer.train()
-
+        #breakpoint()
         del trainer, optimizer, lr_decayer, loss_computer, model
         del train_data_loader, train_data_preprocessor, val_data_loader, val_data_preprocessor
         torch.cuda.empty_cache()
