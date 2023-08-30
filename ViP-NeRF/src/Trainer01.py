@@ -326,6 +326,8 @@ class Trainer:
 
         aabb = torch.tensor(self.configs['aabb']).to("cuda")
         reso_cur = N_to_reso(self.configs['N_voxel_init'], aabb)
+        # self.model.coarse_model.upsample_volume_grid(reso_cur)
+        
         self.configs['model']['coarse_mlp']['num_samples'] = min(self.configs['model']['coarse_mlp']['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
         for iter_num in tqdm(range(start_iter_num, total_num_iters), initial=start_iter_num, total=total_num_iters,
                              mininterval=1, leave=self.verbose_log):

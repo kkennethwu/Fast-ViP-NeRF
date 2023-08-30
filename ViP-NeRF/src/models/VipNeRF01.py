@@ -503,7 +503,7 @@ class MLP(torch.nn.Module):
         self.matMode = [[0,1], [0,2], [1,2]]
         self.vecMode =  [2, 1, 0]
         # self.gridSize = torch.tensor([331, 368, 220]).to(f"cuda") # device problem
-        self.gridSize = torch.tensor([128, 128, 128]).to("cuda") # device problem
+        self.gridSize = torch.tensor([141, 157, 94]).to("cuda") # device problem
         self.density_n_comp = [16, 4, 4] # n_lamb_sigma = [16,4,4]
         self.app_n_comp = [48, 12, 12] # n_lamb_sh = [48,12,12]
         self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)

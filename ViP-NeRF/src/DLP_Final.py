@@ -375,10 +375,10 @@ def DLP_demo_2_views():
         start_testing_static_videos(test_configs)
     return
     
-def demo():
+def demo_best_2_view():
     train_num = 11
     test_num = 11
-    scene_names = ['fern']
+    scene_names = ['horns']
 
     for scene_name in scene_names:
         train_configs = {
@@ -398,7 +398,7 @@ def demo():
                 'ndc': True,
                 'batching': True,
                 'downsampling_factor': 1,
-                'num_rays': 2048,
+                'num_rays': 1024,
                 'precrop_fraction': 1,
                 'precrop_iterations': -1,
                 'visibility_prior': {
@@ -408,7 +408,7 @@ def demo():
                 },
                 'sparse_depth': {
                     'dirname': 'DE02',
-                    'num_rays': 2048,
+                    'num_rays': 1024,
                 },
                 # 'dense_depth': {
                 #     'dirname': 'DE02',
@@ -416,7 +416,8 @@ def demo():
                 # },
             },
             'N_voxel_init': 2097156, # 128**3
-            'N_voxel_final': 262144000, # 640**3'
+            'N_voxel_final': 262144000, # 640**3
+            # 'N_voxel_final': 27000000, # 300**3'
             'upsamp_list': [2000,3000,4000,5500],
             'aabb': [[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]], # define scene_box
             'step_ratio': 0.5,
@@ -429,7 +430,7 @@ def demo():
                 'name': 'VipNeRF01',
                 'coarse_mlp': {
                     'num_samples': 128,
-                    'max_nSamples': 1e6,
+                    'max_nSamples': 2000,
                     'netdepth': 8,
                     'netwidth': 256,
                     'points_positional_encoding_degree': 10,
@@ -448,9 +449,9 @@ def demo():
                 #     'view_dependent_rgb': True,
                 #     'predict_visibility': True,
                 # },
-                'chunk': 16*1024,
+                'chunk': 64*1024,
                 'lindisp': False,
-                'netchunk': 64*1024,
+                'netchunk': 128*1024,
                 'perturb': True,
                 'raw_noise_std': 1.0,
                 'white_bkgd': False,
@@ -462,17 +463,17 @@ def demo():
                 },
                 {
                     'name': 'VisibilityLoss01',
-                    'weight': 1,
+                    'weight': 0.1,
                 },
                 {
                     'name': 'VisibilityPriorLoss01',
                     'iter_weights': {
-                        '0': 1
+                        '0': 0, '3000': 0.001
                     },
                 },
                 {
                     "name": "SparseDepthMSE01",
-                    "weight": 1,
+                    "weight": 0.1,
                 },
                 # {
                 #     "name": "DenseDepthMSE01",
@@ -488,8 +489,8 @@ def demo():
             },
             'resume_training': False,
             'num_iterations': 30000,
-            'validation_interval': 2000,
-            'validation_chunk_size': 128 * 1024,
+            'validation_interval': 3000,
+            'validation_chunk_size': 64 * 1024,
             'validation_save_loss_maps': False,
             'model_save_interval': 30000,
             'mixed_precision_training': False,
@@ -515,12 +516,13 @@ def demo():
         start_testing_static_videos(test_configs)
     return
 
+
 def main():
     # DLP_demo_all_views_wo_sparse_depth()x
     # DLP_demo_4_views()
     # DLP_demo_2_views()
     # DLP_demo_all_views_wo_sparse_depth()
-    demo()
+    # demo_best_2_view()
     return
 
 
