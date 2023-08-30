@@ -187,13 +187,13 @@ class DataPreprocessor(DataPreprocessorParent):
 
         sc = processed_data_dict['nerf_data']['sc']
         depths = raw_data_dict['dense_depth_data']['depth_values'] * sc
-        depth_weights = raw_data_dict['dense_depth_data']['depth_weights']
+        # depth_weights = raw_data_dict['dense_depth_data']['depth_weights']
 
         if self.downsampling_factor > 1:
             depths = numpy.stack([skimage.transform.rescale(depth, 1/self.downsampling_factor) for depth in depths])
-            depth_weights = numpy.stack([skimage.transform.rescale(weights, 1/self.downsampling_factor) for weights in depth_weights])
+            # depth_weights = numpy.stack([skimage.transform.rescale(weights, 1/self.downsampling_factor) for weights in depth_weights])
         return_dict['depth_values'] = depths
-        return_dict['depth_weights'] = depth_weights
+        # return_dict['depth_weights'] = depth_weights
         self.add_residual_dict_items(return_dict, raw_data_dict['dense_depth_data'])
         return return_dict
 
@@ -450,10 +450,10 @@ class DataPreprocessor(DataPreprocessorParent):
         dense_depth_data = data_dict['dense_depth_data']
 
         dense_depths = numpy.reshape(dense_depth_data['depth_values'], (-1, 1)).astype(numpy.float32)  # (n*h*w, 1)
-        dense_depth_weights = numpy.reshape(dense_depth_data['depth_weights'], (-1, 1)).astype(numpy.float32)  # (n*h*w, 1)
+        # dense_depth_weights = numpy.reshape(dense_depth_data['depth_weights'], (-1, 1)).astype(numpy.float32)  # (n*h*w, 1)
         all_data_dict = {
             'depth_values': torch.from_numpy(dense_depths),
-            'depth_weights': torch.from_numpy(dense_depth_weights)
+            # 'depth_weights': torch.from_numpy(dense_depth_weights)
         }
         if self.ndc:
             rays_o, rays_d = cache_data_dict['nerf_data']['rays_o'].numpy(), cache_data_dict['nerf_data']['rays_d'].numpy()
@@ -688,11 +688,11 @@ class DataPreprocessor(DataPreprocessorParent):
         indices_nerf = indices[indices_nerf_mask]
 
         dense_depths = -1 * torch.ones((indices.shape[0], 1)).to(self.device)
-        dense_depth_weights = -1 * torch.ones((indices.shape[0], 1)).to(self.device)
+        # dense_depth_weights = -1 * torch.ones((indices.shape[0], 1)).to(self.device)
         dense_depths[indices_nerf_mask] = self.preprocessed_data_dict['dense_depth_data']['depth_values'][indices_nerf]
-        dense_depth_weights[indices_nerf_mask] = self.preprocessed_data_dict['dense_depth_data']['depth_weights'][indices_nerf]
+        # dense_depth_weights[indices_nerf_mask] = self.preprocessed_data_dict['dense_depth_data']['depth_weights'][indices_nerf]
         return_dict['dense_depth_values'] = dense_depths
-        return_dict['dense_depth_weights'] = dense_depth_weights
+        # return_dict['dense_depth_weights'] = dense_depth_weights
         if self.ndc:
             dense_depths_ndc = -1 * torch.ones((indices.shape[0], 1)).to(self.device)
             dense_depths_ndc[indices_nerf_mask] = self.preprocessed_data_dict['dense_depth_data']['depth_values_ndc'][indices_nerf]

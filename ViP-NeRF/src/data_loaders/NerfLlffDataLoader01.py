@@ -98,32 +98,52 @@ class NerfLlffDataLoader(DataLoaderParent):
         dense_depth_data = {}
 
         h, w = data_dict['nerf_data']['resolution']
-        depths, depth_weights = [], []
+        depths = []
         depth_dirname = self.configs['data_loader']['dense_depth']['dirname']
-        weights_suffix = ''
-        if 'weights_suffix' in self.configs['data_loader']['dense_depth']:
-            weights_suffix = self.configs['data_loader']['dense_depth']['weights_suffix']
+
         for frame_num in data_dict['frame_nums']:
-            depth_path = self.data_dirpath / f'all/estimated_depths/{depth_dirname}/{self.scene_name}/estimated_depths{self.resolution_suffix}/{frame_num:04}.npy'
+            depth_path = self.data_dirpath / f'all/dense_depth/{self.scene_name}/dense_depth{self.resolution_suffix}/{frame_num:04}.png'
             print(f'Loading depth: {depth_path.as_posix()}')
 
-            depth = numpy.load(depth_path.as_posix())
+            depth = skimage.io.imread(depth_path.as_posix())
             depths.append(depth)
 
-            weights_path = self.data_dirpath / f'all/estimated_depths/{depth_dirname}/{self.scene_name}/Weights{self.resolution_suffix}{weights_suffix}/{frame_num:04}.npy'
-            if weights_path.exists():
-                depth_weight = numpy.load(weights_path.as_posix())[:, :]
-            else:
-                print(f'Dense Depth Weights {weights_path.as_posix()} not found!. Loading unit weights.')
-                depth_weight = numpy.ones(shape=(h, w))
-            depth_weights.append(depth_weight)
         depths = numpy.stack(depths, axis=0)
-        depth_weights = numpy.stack(depth_weights, axis=0)
 
         dense_depth_data['depth_values'] = depths
-        dense_depth_data['depth_weights'] = depth_weights
 
         return dense_depth_data
+
+    # def load_dense_depth_data(self, data_dict: dict):
+    #     dense_depth_data = {}
+
+    #     h, w = data_dict['nerf_data']['resolution']
+    #     depths, depth_weights = [], []
+    #     depth_dirname = self.configs['data_loader']['dense_depth']['dirname']
+    #     weights_suffix = ''
+    #     if 'weights_suffix' in self.configs['data_loader']['dense_depth']:
+    #         weights_suffix = self.configs['data_loader']['dense_depth']['weights_suffix']
+    #     for frame_num in data_dict['frame_nums']:
+    #         depth_path = self.data_dirpath / f'all/estimated_depths/{depth_dirname}/{self.scene_name}/estimated_depths{self.resolution_suffix}/{frame_num:04}.npy'
+    #         print(f'Loading depth: {depth_path.as_posix()}')
+
+    #         depth = numpy.load(depth_path.as_posix())
+    #         depths.append(depth)
+
+    #         weights_path = self.data_dirpath / f'all/estimated_depths/{depth_dirname}/{self.scene_name}/Weights{self.resolution_suffix}{weights_suffix}/{frame_num:04}.npy'
+    #         if weights_path.exists():
+    #             depth_weight = numpy.load(weights_path.as_posix())[:, :]
+    #         else:
+    #             print(f'Dense Depth Weights {weights_path.as_posix()} not found!. Loading unit weights.')
+    #             depth_weight = numpy.ones(shape=(h, w))
+    #         depth_weights.append(depth_weight)
+    #     depths = numpy.stack(depths, axis=0)
+    #     depth_weights = numpy.stack(depth_weights, axis=0)
+
+    #     dense_depth_data['depth_values'] = depths
+    #     dense_depth_data['depth_weights'] = depth_weights
+
+    #     return dense_depth_data
 
     def load_visibility_prior_data(self, data_dict):
         visibility_prior_data = {}

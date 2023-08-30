@@ -26,6 +26,9 @@ class DenseDepthMSE(LossFunctionParent):
         total_loss = 0
         loss_maps = {}
 
+        if 'dense_depth_values' not in input_dict:
+            return {'loss_value': torch.Tensor([0]).to(input_dict['rays_o']).mean()}
+        
         indices_mask = input_dict['indices_mask_nerf']
         gt_depth = input_dict['dense_depth_values'][:, 0]
 
@@ -37,7 +40,7 @@ class DenseDepthMSE(LossFunctionParent):
                 loss_maps = LossUtils01.update_loss_map_dict(loss_maps, depth_mse_coarse['loss_maps'], suffix='coarse')
 
         if self.fine_mlp_needed:
-            pred_depth_fine = output_dict['depth_fine'][:self.num_rays]
+            pred_depth_fine = output_dict['depth_fine']
             depth_mse_fine = self.compute_mse(pred_depth_fine, gt_depth, indices_mask, return_loss_maps)
             total_loss += depth_mse_fine['loss_value']
             if return_loss_maps:
@@ -48,12 +51,21 @@ class DenseDepthMSE(LossFunctionParent):
         }
         if return_loss_maps:
             loss_dict['loss_maps'] = loss_maps
+        
         return loss_dict
 
     @staticmethod
     def compute_mse(pred_depth, gt_depth, indices_mask, return_loss_maps: bool):
-        pred_depth = pred_depth[indices_mask]
+        def depth_normalization(depth):
+            t_d = torch.median(depth)
+            s_d = torch.mean(torch.abs(depth - t_d))
+            depth_norm = (depth - t_d) / (s_d + 1e-10)
+            return depth_norm
+        
+        pred_depth = pred_depth[indices_mask] 
         gt_depth = gt_depth[indices_mask]
+        pred_depth = depth_normalization(1.0 / pred_depth + 1e-6)
+        gt_depth = depth_normalization(gt_depth)
 
         error = pred_depth - gt_depth
         ray_se = torch.square(error)
@@ -65,4 +77,5 @@ class DenseDepthMSE(LossFunctionParent):
             loss_dict['loss_maps'] = {
                 this_filename: ray_se
             }
+
         return loss_dict
