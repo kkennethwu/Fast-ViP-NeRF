@@ -46,17 +46,21 @@ def start_training(train_configs: dict):
     output_dirpath = root_dirpath / f'runs/training/train{train_configs["train_num"]:04}'
     output_dirpath.mkdir(parents=True, exist_ok=True)
     scene_names = train_configs['data_loader'].get('scene_names', None)
-    Trainer.save_configs(output_dirpath, train_configs)
-    train_configs['data_loader']['scene_names'] = scene_names
-    if train_configs['data_loader']['scene_names'] is None:
-        set_num = train_configs['data_loader']['train_set_num']
+    tmp_train_configs = train_configs.copy()
+    # Trainer.save_configs(output_dirpath, train_configs)
+    tmp_train_configs['data_loader']['scene_names'] = scene_names
+    if tmp_train_configs['data_loader']['scene_names'] is None:
+        set_num = tmp_train_configs['data_loader']['train_set_num']
         video_datapath = database_dirpath / f'train_test_sets/set{set_num:02}/TrainVideosData.csv'
         video_data = pandas.read_csv(video_datapath)
         scene_names = video_data['scene_name'].to_numpy()
     scene_ids = numpy.unique(scene_names)
-    train_configs['data_loader']['scene_ids'] = scene_ids
-    Trainer.start_training(train_configs)
-    return
+    tmp_train_configs['data_loader']['scene_ids'] = scene_ids
+    Trainer.start_training(tmp_train_configs)
+    save_train_configs = train_configs.copy()
+    save_train_configs['model'] = tmp_train_configs['model']
+    Trainer.save_train_configs_for_testing(output_dirpath, train_configs)
+    return 
 
 
 def start_testing(test_configs: dict):

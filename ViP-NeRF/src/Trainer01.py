@@ -324,11 +324,10 @@ class Trainer:
             self.configs['lr_decay_iters'] = self.configs['num_iterations']
             lr_factor = self.configs['lr_decay_target_ratio']**(1/self.configs['num_iterations'])
 
-        aabb = torch.tensor(self.configs['aabb']).to("cuda")
-        reso_cur = N_to_reso(self.configs['N_voxel_init'], aabb)
+        # aabb = torch.tensor(self.configs['aabb']).to("cuda")
+        # reso_cur = N_to_reso(self.configs['N_voxel_init'], aabb)
         # self.model.coarse_model.upsample_volume_grid(reso_cur)
-        
-        self.configs['model']['coarse_mlp']['num_samples'] = min(self.configs['model']['coarse_mlp']['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
+        # self.configs['model']['coarse_mlp']['num_samples'] = min(self.configs['model']['coarse_mlp']['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
         for iter_num in tqdm(range(start_iter_num, total_num_iters), initial=start_iter_num, total=total_num_iters,
                              mininterval=1, leave=self.verbose_log):
             # iter_lr = self.lr_decayer.get_updated_learning_rate(iter_num)
@@ -372,9 +371,9 @@ class Trainer:
                     lr_scale = self.configs['lr_decay_target_ratio'] ** (iter_num / self.configs['num_iterations'])
                 grad_vars = self.model.coarse_model.get_optparam_groups(self.configs['lr_initial_voxel']*lr_scale, self.configs['lr_initial_mlp']*lr_scale)
                 self.optimizer = torch.optim.Adam(grad_vars, betas=(0.9, 0.99))
-                print("gridSize after upsampling: ", self.model.coarse_model.gridSize)
-        
-
+                self.configs['model']['coarse_mlp']['gridSize'] = reso_cur
+                print("gridSize after upsampling: ", self.configs['model']['coarse_mlp']['gridSize'])
+                
         # save_plots(logs_dirpath)
         return
 
@@ -534,6 +533,18 @@ def save_configs(output_dirpath: Path, configs: dict, filename: Optional[str] = 
         simplejson.dump(configs, configs_file, indent=4)
     return
 
+def save_train_configs_for_testing(output_dirpath: Path, configs: dict, filename: Optional[str] = 'Configs.json'):
+    from json import JSONEncoder
+    configs_path = output_dirpath / filename
+    class NumpyArrayEncoder(JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, numpy.ndarray):
+                return obj.tolist()
+            return JSONEncoder.default(self, obj)
+    
+    with open(configs_path.as_posix(), 'w') as configs_file:
+        json.dump(configs, configs_file, indent=4, cls=NumpyArrayEncoder)
+    return
 
 def save_model_configs(output_dirpath: Path, configs: dict, filename: Optional[str] = 'Configs.json'):
     # Save model configs
@@ -545,8 +556,9 @@ def save_model_configs(output_dirpath: Path, configs: dict, filename: Optional[s
             # TODO: Reinstate Raise Error
             # raise RuntimeError(f'Configs mismatch while resuming training: {DeepDiff(old_configs, configs)}')
             print(f'Configs mismatch while resuming training: {DeepDiff(old_configs, configs)}')
+    
     with open(configs_path.as_posix(), 'w') as configs_file:
-        simplejson.dump(configs, configs_file, indent=4)
+        json.dump(configs, configs_file, indent=4)
     return
 
 
@@ -576,6 +588,11 @@ def start_training(configs: dict):
                                                       raw_data_dict=val_data_loader.load_data(),
                                                       model_configs=train_data_preprocessor.get_model_configs())
         model_configs = train_data_preprocessor.get_model_configs()
+        # initial voxel grid
+        aabb = torch.tensor(configs['aabb']).to("cuda")
+        reso_cur = N_to_reso(configs['N_voxel_init'], aabb)
+        configs['model']['coarse_mlp']['gridSize'] = reso_cur
+        
         model = get_model(configs, model_configs)
         # model = torch.nn.DataParallel(model, device_ids=configs['device'])
         loss_computer = LossComputer(configs)
@@ -590,12 +607,14 @@ def start_training(configs: dict):
         # Start training
         trainer = Trainer(configs, model_configs, train_data_preprocessor, val_data_preprocessor, model, loss_computer,
                           optimizer, lr_decayer, scene_output_dirpath, configs['device'])
-        trainer.train()
-
+        final_training_config = trainer.train()
+        # save final gridSize to train config for testing
+        # print("Final Grid Size: ", model.coarse_model.gridSize)
+        # configs['model']['coarse_mlp']['gridSize'] = model.coarse_model.gridSize
+        
         del trainer, optimizer, lr_decayer, loss_computer, model
         del train_data_loader, train_data_preprocessor, val_data_loader, val_data_preprocessor
         torch.cuda.empty_cache()
-    return
 
 
 def N_to_reso(n_voxels, bbox): # have some problem

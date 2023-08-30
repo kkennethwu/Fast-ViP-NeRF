@@ -378,7 +378,7 @@ def DLP_demo_2_views():
 def demo_best_2_view():
     train_num = 11
     test_num = 11
-    scene_names = ['horns']
+    # scene_names = ['fern', 'flower', 'fortress', 'horns', 'leaves', 'orchids', 'room', 'trex']
 
     for scene_name in scene_names:
         train_configs = {
@@ -418,6 +418,7 @@ def demo_best_2_view():
             'N_voxel_init': 2097156, # 128**3
             'N_voxel_final': 262144000, # 640**3
             # 'N_voxel_final': 27000000, # 300**3'
+            # 'upsamp_list': [2000,3000,4000,5500],
             'upsamp_list': [2000,3000,4000,5500],
             'aabb': [[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]], # define scene_box
             'step_ratio': 0.5,
@@ -438,6 +439,7 @@ def demo_best_2_view():
                     'use_view_dirs': True,
                     'view_dependent_rgb': True,
                     'predict_visibility': True,
+                    'gridSize': [128, 128, 128], # the actaul gridSize is based on N_voxel_init. This config just help transfer parameter
                 },
                 # 'fine_mlp': {
                 #     'num_samples': 128,
@@ -487,7 +489,7 @@ def demo_best_2_view():
                 'beta1': 0.9,
                 'beta2': 0.999,
             },
-            'resume_training': False,
+            'resume_training': True,
             'num_iterations': 30000,
             'validation_interval': 3000,
             'validation_chunk_size': 64 * 1024,
@@ -522,7 +524,7 @@ def main():
     # DLP_demo_4_views()
     # DLP_demo_2_views()
     # DLP_demo_all_views_wo_sparse_depth()
-    # demo_best_2_view()
+    demo_best_2_view()
     return
 
 

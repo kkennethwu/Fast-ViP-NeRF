@@ -503,7 +503,9 @@ class MLP(torch.nn.Module):
         self.matMode = [[0,1], [0,2], [1,2]]
         self.vecMode =  [2, 1, 0]
         # self.gridSize = torch.tensor([331, 368, 220]).to(f"cuda") # device problem
-        self.gridSize = torch.tensor([141, 157, 94]).to("cuda") # device problem
+        # self.gridSize = torch.tensor([141, 157, 94]).to("cuda") # device problem
+        self.gridSize = torch.tensor(self.mlp_configs['gridSize']).to("cuda")
+        print(self.gridSize)
         self.density_n_comp = [16, 4, 4] # n_lamb_sigma = [16,4,4]
         self.app_n_comp = [48, 12, 12] # n_lamb_sh = [48,12,12]
         self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)
@@ -515,6 +517,7 @@ class MLP(torch.nn.Module):
         self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128).to(f"cuda")
         # self.density_n_comp = 
         self.step_ratio = configs['step_ratio']
+        
         
         return
         
