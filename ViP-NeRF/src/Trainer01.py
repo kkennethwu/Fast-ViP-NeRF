@@ -324,10 +324,6 @@ class Trainer:
             self.configs['lr_decay_iters'] = self.configs['num_iterations']
             lr_factor = self.configs['lr_decay_target_ratio']**(1/self.configs['num_iterations'])
 
-        # aabb = torch.tensor(self.configs['aabb']).to("cuda")
-        # reso_cur = N_to_reso(self.configs['N_voxel_init'], aabb)
-        # self.model.coarse_model.upsample_volume_grid(reso_cur)
-        # self.configs['model']['coarse_mlp']['num_samples'] = min(self.configs['model']['coarse_mlp']['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
         for iter_num in tqdm(range(start_iter_num, total_num_iters), initial=start_iter_num, total=total_num_iters,
                              mininterval=1, leave=self.verbose_log):
             # iter_lr = self.lr_decayer.get_updated_learning_rate(iter_num)
@@ -589,7 +585,7 @@ def start_training(configs: dict):
                                                       model_configs=train_data_preprocessor.get_model_configs())
         model_configs = train_data_preprocessor.get_model_configs()
         # initial voxel grid
-        aabb = torch.tensor(configs['aabb']).to("cuda")
+        aabb = torch.tensor(configs['aabb']).to(f"cuda:{configs['device'][0]}")
         reso_cur = N_to_reso(configs['N_voxel_init'], aabb)
         configs['model']['coarse_mlp']['gridSize'] = reso_cur
         
@@ -607,7 +603,7 @@ def start_training(configs: dict):
         # Start training
         trainer = Trainer(configs, model_configs, train_data_preprocessor, val_data_preprocessor, model, loss_computer,
                           optimizer, lr_decayer, scene_output_dirpath, configs['device'])
-        final_training_config = trainer.train()
+        trainer.train()
         # save final gridSize to train config for testing
         # print("Final Grid Size: ", model.coarse_model.gridSize)
         # configs['model']['coarse_mlp']['gridSize'] = model.coarse_model.gridSize
