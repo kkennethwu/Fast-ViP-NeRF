@@ -106,7 +106,7 @@ class Trainer:
                 loss_tv += self.model.fine_model.TV_loss_density(tvreg) * 1 * lr_factor
                 loss_tv += self.model.fine_model.TV_loss_app(tvreg) * 1 * lr_factor
             sub_batch_loss += loss_tv
-            
+            # self.configs['rayMarch_weight_thres'] = min(self.configs['rayMarch_weight_thres'] * iter_num / 15000, self.configs['rayMarch_weight_thres'])
             sub_batch_loss.backward()
             iter_losses_dict = update_losses_dict_(iter_losses_dict, sub_iter_losses_dict, num_samples_=1)
             delete_dict(sub_output_batch)
@@ -322,7 +322,7 @@ class Trainer:
             self.configs['lr_decay_iters'] = self.configs['num_iterations']
             lr_factor = self.configs['lr_decay_target_ratio']**(1/self.configs['num_iterations'])
 
-        # aabb = torch.tensor(self.configs['aabb']).to("cuda:1")
+        # aabb = torch.tensor(self.configs['aabb']).to("cuda")
         # reso_cur = N_to_reso(self.configs['N_voxel_init'], aabb)
         # self.configs['model']['coarse_mlp']['num_samples'] = min(self.configs['model']['coarse_mlp']['max_nSamples'], cal_n_samples(reso_cur,self.configs['step_ratio']))
         for iter_num in tqdm(range(start_iter_num, total_num_iters), initial=start_iter_num, total=total_num_iters,

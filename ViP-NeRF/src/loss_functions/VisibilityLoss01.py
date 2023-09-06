@@ -69,6 +69,6 @@ class VisibilityLoss(LossFunctionParent):
     @staticmethod
     def compute_mae(vis1, vis2):
         error = vis1 - vis2
-        vis_loss = torch.mean(torch.abs(error), dim=1)
+        vis_loss = torch.mean(torch.abs(error), dim=0)
         mean_loss = torch.mean(vis_loss)
         return mean_loss, vis_loss
