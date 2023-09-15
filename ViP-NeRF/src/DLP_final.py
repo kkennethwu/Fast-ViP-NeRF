@@ -360,8 +360,8 @@ def start_testing_static_videos(test_configs: dict):
 def demo():
     train_num = 11
     test_num = 11
-    scene_names = ['fern', 'flower', 'fortress', 'horns', 'leaves', 'orchids', 'room', 'trex']
-    # scene_names = ['fern']
+    scene_names = ['horns']
+    # scene_names = ['leaves', 'orchids', 'room', 'trex']
     for scene_name in scene_names:
         train_configs = {
             'trainer': f'{this_filename}/{Trainer.this_filename}',
@@ -407,12 +407,12 @@ def demo():
             'lr_decay_iters': -1,
             'lr_initial_voxel': 0.2,
             'lr_initial_mlp': 0.001,
-            'rayMarch_weight_thres': 1e-3,
+            'rayMarch_weight_thres': 1e-9,
             'model': {
                 'name': 'VipNeRF03',
                 'coarse_mlp': {
                     'num_samples': 128,
-                    'max_nSamples': 2000,
+                    'max_nSamples': 1e6,
                     'netdepth': 8,
                     'netwidth': 256,
                     'points_positional_encoding_degree': 10,
@@ -432,9 +432,9 @@ def demo():
                 #     'view_dependent_rgb': True,
                 #     'predict_visibility': True,
                 # },
-                'chunk': 16*1024,
+                'chunk': 4 * 1024,
                 'lindisp': False,
-                'netchunk': 16*1024,
+                'netchunk': 4 * 1024,
                 'perturb': True,
                 'raw_noise_std': 1.0,
                 'white_bkgd': False,
@@ -461,8 +461,9 @@ def demo():
                 {
                     "name": "DenseDepthMSE01",
                     'iter_weights': {
-                        '0': 0.02, '10000': 0.001
+                        '0': 0.02, '5000': 0.0001
                     },
+                    # "weight": 0.02,
                 },
             ],
             'optimizer': {
@@ -473,27 +474,27 @@ def demo():
                 'beta2': 0.999,
             },
             'resume_training': True,
-            'num_iterations': 30000,
-            'validation_interval': 5000,
-            'validation_chunk_size': 8 * 1024,
+            'num_iterations': 50000,
+            'validation_interval': 10000,
+            'validation_chunk_size': 4 * 1024,
             'validation_save_loss_maps': False,
             'model_save_interval': 10000,
             'mixed_precision_training': False,
             # 'seed': numpy.random.randint(1000),
             'seed': 0,
-            'device': [1],
+            'device': [0],
         }
         test_configs = {
             'Tester': f'{this_filename}/{Tester.this_filename}',
             'test_num': test_num,
             'test_set_num': 2,
             'train_num': train_num,
-            'model_name': 'Model_Iter030000.tar',
+            'model_name': 'Model_Iter050000.tar',
             'database_name': 'NeRF_LLFF',
             'database_dirpath': 'NeRF_LLFF/data',
             'resolution_suffix': train_configs['data_loader']['resolution_suffix'],
             'scene_names': [scene_name],
-            'device': [1],
+            'device': [0],
         }
         start_training(train_configs)
         start_testing(test_configs)

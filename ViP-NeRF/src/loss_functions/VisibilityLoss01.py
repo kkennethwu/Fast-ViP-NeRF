@@ -55,14 +55,16 @@ class VisibilityLoss(LossFunctionParent):
     @staticmethod
     def compute_visibility_loss(pred_vis, target_vis, return_loss_maps: bool):
         mean_loss1, vis_loss_map1 = VisibilityLoss.compute_mae(pred_vis, target_vis.detach())
-        mean_loss2, vis_loss_map2 = VisibilityLoss.compute_mae(pred_vis.detach(), target_vis)
-        mean_loss = mean_loss1 + mean_loss2
+        # mean_loss2, vis_loss_map2 = VisibilityLoss.compute_mae(pred_vis.detach (), target_vis)
+        # mean_loss = mean_loss1 + mean_loss2
+        mean_loss = mean_loss1
         loss_dict = {
             'loss_value': mean_loss,
         }
         if return_loss_maps:
             loss_dict['loss_maps'] = {
-                this_filename: vis_loss_map1 + vis_loss_map2,
+                # this_filename: vis_loss_map1 + vis_loss_map2,
+                this_filename: vis_loss_map1,
             }
         return loss_dict
 

@@ -379,6 +379,8 @@ class VipNeRF(torch.nn.Module):
         if self.configs['model']['white_bkgd']:
             rgb_map = rgb_map + (1.-acc_map[...,None])
 
+        rgb_map = rgb_map.clamp(0., 1.)
+
         return_dict = {
             'rgb': rgb_map,
             'acc': acc_map,
@@ -398,6 +400,7 @@ class VipNeRF(torch.nn.Module):
             # breakpoint()
             vis2_pixel = torch.sum(weights[..., None] * vis2_point3d, dim=-2) / (acc_map[..., None] + 1e-6)  # (nr, nf-1)
             return_dict['visibility2'] = vis2_pixel
+        
         return return_dict
 
     @staticmethod
@@ -511,16 +514,16 @@ class MLP(torch.nn.Module):
         self.vecMode =  [2, 1, 0]
         # self.gridSize = torch.tensor([331, 368, 220]).to(f"cuda") # device problem
         # self.gridSize = torch.tensor([141, 157, 94]).to("cuda") # device problem
-        self.gridSize = torch.tensor(self.mlp_configs['gridSize']).to(f"cuda:1")
+        self.gridSize = torch.tensor(self.mlp_configs['gridSize']).to(f"cuda")
         self.density_n_comp = [16, 4, 4] # n_lamb_sigma = [16,4,4]
         self.app_n_comp = [48, 12, 12] # n_lamb_sh = [48,12,12]
         self.app_dim = 27 # parser.add_argument("--data_dim_color", type=int, default=27)
         # self.aabb = torch.tensor([[-1.5, -1.67, -1.0], [1.5, 1.67, 1.0]]).to(f"cuda") # define scene_box
-        self.aabb = torch.tensor(self.configs['aabb']).to(f"cuda:1")
+        self.aabb = torch.tensor(self.configs['aabb']).to(f"cuda")
         self.aabbSize = self.aabb[1] - self.aabb[0]
         self.invaabbSize = 2.0/self.aabbSize
-        self.init_svd_volume(self.gridSize[0], f"cuda:1") # 141 is grid size, need to be modify
-        self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128).to(f"cuda:1")
+        self.init_svd_volume(self.gridSize[0], f"cuda") # 141 is grid size, need to be modify
+        self.renderModule = MLPRender_Fea(inChanel=self.app_dim, viewpe=0, feape=0, featureC=128).to(f"cuda")
         # self.density_n_comp = 
         self.step_ratio = configs['step_ratio']
         
@@ -751,8 +754,8 @@ class MLP(torch.nn.Module):
     def compute_view_independent_output(self, input_pts):
         output_dict = {}
         sigma = torch.zeros(input_pts.shape[:-1], device=input_pts.device)
-        mask_outbbox = ~((self.aabb[0] > input_pts) | (input_pts > self.aabb[1])).any(dim=-1)
-
+        # mask_outbbox = ~((self.aabb[0] > input_pts) | (input_pts > self.aabb[1])).any(dim=-1)
+        mask_outbbox = ~((self.aabb[0] > input_pts) | (input_pts > self.aabb[1]) | True).any(dim=-1)
         sigma_feature = self.compute_densityfeature_VM(input_pts[mask_outbbox])
 
         output_dict['feature'] = sigma_feature
@@ -846,7 +849,7 @@ class MLP(torch.nn.Module):
         print("grid size", gridSize)
         self.aabbSize = self.aabb[1] - self.aabb[0]
         self.invaabbSize = 2.0/self.aabbSize
-        self.gridSize= torch.LongTensor(gridSize).to(f"cuda:1")
+        self.gridSize= torch.LongTensor(gridSize).to(f"cuda")
         self.units=self.aabbSize / (self.gridSize-1)
         self.stepSize=torch.mean(self.units)*self.step_ratio
         self.aabbDiag = torch.sqrt(torch.sum(torch.square(self.aabbSize)))

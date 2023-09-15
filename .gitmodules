@@ -1,0 +1,3 @@
+[submodule "ViP-NeRF/DPT"]
+	path = ViP-NeRF/DPT
+	url = https://github.com/isl-org/DPT.git

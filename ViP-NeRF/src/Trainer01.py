@@ -100,11 +100,11 @@ class Trainer:
             tvreg = TVLoss()
             loss_tv = 0
             if self.coarse_mlp_needed:
-                loss_tv += self.model.coarse_model.TV_loss_density(tvreg) * 1 * lr_factor
-                loss_tv += self.model.coarse_model.TV_loss_app(tvreg) * 1 * lr_factor
+                loss_tv += self.model.coarse_model.TV_loss_density(tvreg) * 5 * lr_factor
+                loss_tv += self.model.coarse_model.TV_loss_app(tvreg) * 5 * lr_factor
             if self.fine_mlp_needed:
-                loss_tv += self.model.fine_model.TV_loss_density(tvreg) * 1 * lr_factor
-                loss_tv += self.model.fine_model.TV_loss_app(tvreg) * 1 * lr_factor
+                loss_tv += self.model.fine_model.TV_loss_density(tvreg) * 5 * lr_factor
+                loss_tv += self.model.fine_model.TV_loss_app(tvreg) * 5 * lr_factor
             sub_batch_loss += loss_tv
             # self.configs['rayMarch_weight_thres'] = min(self.configs['rayMarch_weight_thres'] * iter_num / 15000, self.configs['rayMarch_weight_thres'])
             sub_batch_loss.backward()
@@ -586,7 +586,7 @@ def start_training(configs: dict):
                                                       model_configs=train_data_preprocessor.get_model_configs())
         model_configs = train_data_preprocessor.get_model_configs()
         # initial voxel grid
-        aabb = torch.tensor(configs['aabb']).to("cuda:1")
+        aabb = torch.tensor(configs['aabb']).to("cuda")
         reso_cur = N_to_reso(configs['N_voxel_init'], aabb)
         configs['model']['coarse_mlp']['gridSize'] = reso_cur
 
